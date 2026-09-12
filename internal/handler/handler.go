@@ -39,7 +39,8 @@ type KeyService interface {
 	ReturnForUser(ctx context.Context, keyID int64, userID, comment string) error
 	Issue(ctx context.Context, keyID int64, userID string, comment string) error
 	Return(ctx context.Context, keyID int64, comment string) error
-	MarkLost(ctx context.Context, keyID int64, comment string) error
+	MarkLost(ctx context.Context, keyID int64, actorID, comment string) error
+	RestoreLost(ctx context.Context, keyID int64, actorID, comment string) error
 	HistoryForKey(ctx context.Context, keyID int64) ([]models.KeyLog, error)
 	HistoryForUser(ctx context.Context, userID string) ([]models.KeyLog, error)
 	GetCurrentHolder(ctx context.Context, keyID int64) (*models.KeyLog, error)

@@ -23,6 +23,7 @@ func handleError(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: msg})
 	case strings.Contains(msg, "not available"),
 		strings.Contains(msg, "not issued"),
+		strings.Contains(msg, "not marked as lost"),
 		strings.Contains(msg, "already marked"):
 		c.JSON(http.StatusConflict, ErrorResponse{Error: msg})
 	case strings.Contains(msg, "UNIQUE constraint failed"):

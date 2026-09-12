@@ -267,8 +267,9 @@ func (s *KeyService) Update(ctx context.Context, k *models.Key) error {
 	return nil
 }
 
-// MarkLost помечает ключ как утерянный
-func (s *KeyService) MarkLost(ctx context.Context, keyID int64, comment string) error {
+// MarkLost помечает ключ как утерянный. actorID — администратор, выполнивший операцию
+// (журнал ссылается на users, пустой id нарушает внешний ключ).
+func (s *KeyService) MarkLost(ctx context.Context, keyID int64, actorID, comment string) error {
 	k, err := s.GetByID(ctx, keyID)
 	if err != nil {
 		return err
@@ -285,7 +286,7 @@ func (s *KeyService) MarkLost(ctx context.Context, keyID int64, comment string) 
 	// Записываем в журнал
 	log := &models.KeyLog{
 		KeyID:      keyID,
-		UserID:     "", // системное событие
+		UserID:     actorID, // автор операции: администратор
 		ActionType: "lost",
 		Timestamp:  time.Now(),
 		Comment:    &comment,
@@ -295,6 +296,37 @@ func (s *KeyService) MarkLost(ctx context.Context, keyID int64, comment string) 
 	}
 
 	s.log.Info("key marked as lost", zap.Int64("key_id", keyID))
+	return nil
+}
+
+// RestoreLost снимает отметку утери: ключ возвращается в реестр как доступный.
+func (s *KeyService) RestoreLost(ctx context.Context, keyID int64, actorID, comment string) error {
+	k, err := s.GetByID(ctx, keyID)
+	if err != nil {
+		return err
+	}
+
+	if k.Status != models.KeyStatusLost {
+		return fmt.Errorf("key %d is not marked as lost", keyID)
+	}
+
+	if err := s.keyRepo.UpdateStatus(ctx, keyID, models.KeyStatusAvailable); err != nil {
+		return fmt.Errorf("restore key after loss: %w", err)
+	}
+
+	// Записываем в журнал
+	log := &models.KeyLog{
+		KeyID:      keyID,
+		UserID:     actorID, // автор операции: администратор
+		ActionType: "restore",
+		Timestamp:  time.Now(),
+		Comment:    &comment,
+	}
+	if err := s.logRepo.Append(ctx, log); err != nil {
+		s.log.Warn("failed to append restore log", zap.Error(err))
+	}
+
+	s.log.Info("key loss cancelled", zap.Int64("key_id", keyID))
 	return nil
 }
 

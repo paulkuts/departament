@@ -164,6 +164,7 @@ class ApiClient {
     issueKey(id, data)   { return this.request(`/keys/${id}/issue`, { method: 'POST', body: JSON.stringify(data) }); }
     returnKey(id, data)  { return this.request(`/keys/${id}/return`, { method: 'POST', body: JSON.stringify(data) }); }
     markLost(id, data)   { return this.request(`/keys/${id}/lost`, { method: 'POST', body: JSON.stringify(data) }); }
+    restoreKey(id, data) { return this.request(`/keys/${id}/restore`, { method: 'POST', body: JSON.stringify(data) }); }
     getKeyHistory(id)    { return this.request(`/keys/${id}/history`); }
     getKeyHolder(id)     { return this.request(`/keys/${id}/holder`); }
 

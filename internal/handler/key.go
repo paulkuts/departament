@@ -26,6 +26,7 @@ func (h *KeyHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		keys.POST("/:id/issue", h.issue)
 		keys.POST("/:id/return", h.returnKey)
 		keys.POST("/:id/lost", requireRoles(adminKey), h.markLost)
+		keys.POST("/:id/restore", requireRoles(adminKey), h.restoreLost)
 		keys.GET("/:id/history", h.history)
 		keys.GET("/:id/holder", h.getCurrentHolder)
 	}
@@ -199,12 +200,37 @@ func (h *KeyHandler) markLost(c *gin.Context) {
 		comment = *req.Comment
 	}
 
-	if err := h.svc.MarkLost(c.Request.Context(), id, comment); err != nil {
+	if err := h.svc.MarkLost(c.Request.Context(), id, c.GetString(userIDKey), comment); err != nil {
 		handleError(c, err)
 		return
 	}
 
 	c.JSON(http.StatusOK, MessageResponse{Message: "ключ помечен как утерянный"})
+}
+
+// restoreLost снимает отметку утери: повторное нажатие на кнопку утери.
+func (h *KeyHandler) restoreLost(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Comment *string `json:"comment"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	comment := ""
+	if req.Comment != nil {
+		comment = *req.Comment
+	}
+
+	if err := h.svc.RestoreLost(c.Request.Context(), id, c.GetString(userIDKey), comment); err != nil {
+		handleError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, MessageResponse{Message: "утеря отменена, ключ доступен"})
 }
 
 func (h *KeyHandler) history(c *gin.Context) {

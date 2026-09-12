@@ -109,6 +109,8 @@ Middleware после JWT проверяет актуальную роль и а
 
 Гостевой процесс: admin получает QR → гость отправляет name/affiliation/purpose → admin назначает ответственного сотрудника и одобряет → ключ выдаётся сотруднику, гостевые сведения сохраняются в заявке. Мгновенная анонимная выдача не реализована.
 
+Отметка утери и её отмена: admin помечает ключ утерянным (`POST /keys/:id/lost`), в карточке ключа та же кнопка становится «Отменить утерю» (`POST /keys/:id/restore`) и возвращает ключ в реестр как доступный. Оба события пишутся в журнал ключа с автором-администратором. Повторная отмена помеченного утерянным ключа — 409.
+
 **Ограничения прав:** GET API пользователей доступен вошедшим, хотя UI управления показан admin. В API событий нет отдельной owner/admin-проверки изменения/удаления. is_public не означает гостевой API: публичная регистрация маршрутов событий не подключена. Отдельные полноценные сценарии преподавателя/студента не разработаны; заведующий лабораторией пока моделируется admin.
 
 ## Карта API
@@ -121,7 +123,7 @@ Middleware после JWT проверяет актуальную роль и а
 | Public ключ | GET /public/keys/:public_id; POST /public/keys/:public_id/requests |
 | Профиль | GET /me, /avatars/:user_id |
 | Пользователи | GET/POST /users; GET /users/active; GET/PUT/DELETE /users/:id; POST /users/:id/activate; GET /users/:id/history; POST/DELETE /users/:id/avatar |
-| Ключи | GET/POST /keys; GET/PUT/DELETE /keys/:id; POST /keys/:id/issue, /return, /lost; GET /keys/:id/history, /holder, /qr; POST /keys/:id/public-link |
+| Ключи | GET/POST /keys; GET/PUT/DELETE /keys/:id; POST /keys/:id/issue, /return, /lost, /restore; GET /keys/:id/history, /holder, /qr; POST /keys/:id/public-link |
 | Имущество | GET/POST /inventory; GET /inventory/expired-verification; GET/PUT/DELETE /inventory/:id |
 | Фото/QR | GET/POST /inventory/:id/photos; GET/DELETE /photos/:photo_id; GET /inventory/:id/qr |
 | Публикации | GET/POST /articles; GET/PUT/DELETE /articles/:id |
