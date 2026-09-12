@@ -61,12 +61,13 @@ func (h *UserHandler) Create(c *gin.Context) {
 		IsActive: true,
 	}
 
-	// Парсим дату рождения если указана
+	// Парсим дату рождения если указана: в базу пишем TEXT 'YYYY-MM-DD'
 	if req.DateOfBirth != nil && *req.DateOfBirth != "" {
-		dob, err := time.Parse("2006-01-02", *req.DateOfBirth)
-		if err == nil {
-			user.DateOfBirth = &dob
+		if _, err := time.Parse("2006-01-02", *req.DateOfBirth); err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "некорректная дата рождения, ожидается формат ГГГГ-ММ-ДД"})
+			return
 		}
+		user.DateOfBirth = req.DateOfBirth
 	}
 
 	// Устанавливаем кабинет если указан
@@ -154,7 +155,11 @@ func (h *UserHandler) Update(c *gin.Context) {
 	user.FullName = req.FullName
 	user.Role = req.Role
 	user.Phone = req.Phone
-	user.Email = req.Email
+	// Почта обязательна в базе: пустое или отсутствующее поле означает «не менять»,
+	// иначе профиль падает с NOT NULL constraint failed: users.email
+	if req.Email != nil && strings.TrimSpace(*req.Email) != "" {
+		user.Email = req.Email
+	}
 	if req.IsActive != nil {
 		user.IsActive = *req.IsActive
 	}
@@ -163,12 +168,13 @@ func (h *UserHandler) Update(c *gin.Context) {
 		user.Avatar = req.Avatar
 	}
 
-	// Обновляем дату рождения если указана
+	// Обновляем дату рождения если указана: в базу пишем TEXT 'YYYY-MM-DD'
 	if req.DateOfBirth != nil && *req.DateOfBirth != "" {
-		dob, err := time.Parse("2006-01-02", *req.DateOfBirth)
-		if err == nil {
-			user.DateOfBirth = &dob
+		if _, err := time.Parse("2006-01-02", *req.DateOfBirth); err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "некорректная дата рождения, ожидается формат ГГГГ-ММ-ДД"})
+			return
 		}
+		user.DateOfBirth = req.DateOfBirth
 	} else if req.DateOfBirth != nil {
 		user.DateOfBirth = nil
 	}

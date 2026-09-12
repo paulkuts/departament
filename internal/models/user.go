@@ -12,7 +12,7 @@ type User struct {
 	Position     *string    `json:"position,omitempty" db:"position"`   // должность
 	Phone        *string    `json:"phone,omitempty" db:"phone"`
 	Email        *string    `json:"email,omitempty" db:"email"`
-	DateOfBirth  *time.Time `json:"date_of_birth,omitempty" db:"date_of_birth"` // Дата рождения (для не-студентов)
+	DateOfBirth  *string    `json:"date_of_birth,omitempty" db:"date_of_birth"` // Дата рождения: TEXT 'YYYY-MM-DD' (для не-студентов)
 	Office       *string    `json:"office,omitempty" db:"office"`               // Кабинет (для не-студентов)
 	IsActive     bool       `json:"is_active" db:"is_active"`
 	CreatedAt    time.Time  `json:"created_at" db:"created_at"`

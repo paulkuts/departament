@@ -2,7 +2,6 @@ package handler
 
 import (
 	"mitm-departament/internal/models"
-	"time"
 )
 
 // ========== Users ==========
@@ -44,7 +43,7 @@ type UserResponse struct {
 	Position    *string    `json:"position"`
 	Phone       *string    `json:"phone,omitempty"`
 	Email       *string    `json:"email,omitempty"`
-	DateOfBirth *time.Time `json:"date_of_birth,omitempty"`
+	DateOfBirth *string    `json:"date_of_birth,omitempty"`
 	Office      *string    `json:"office,omitempty"`
 	IsActive    bool       `json:"is_active"`
 	CreatedAt   string     `json:"created_at"`
@@ -65,11 +64,26 @@ func ToUserResponse(u *models.User) UserResponse {
 		Position:    u.Position,
 		Phone:       u.Phone,
 		Email:       u.Email,
-		DateOfBirth: u.DateOfBirth,
+		DateOfBirth: normalizeDate(u.DateOfBirth),
 		Office:      u.Office,
 		IsActive:    u.IsActive,
 		CreatedAt:   u.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
+}
+
+// normalizeDate приводит дату к виду YYYY-MM-DD. Так выглядит штатная запись;
+// устаревшие значения (например '1999-07-15 00:00:00 +0000 UTC') обрезаются,
+// иначе дата приходит в интерфейс в нечитаемом виде.
+func normalizeDate(v *string) *string {
+	if v == nil || *v == "" {
+		return nil
+	}
+	s := *v
+	if len(s) >= 10 && s[4] == '-' && s[7] == '-' {
+		out := s[:10]
+		return &out
+	}
+	return v
 }
 
 // ========== Keys ==========
