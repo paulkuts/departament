@@ -1,0 +1,35 @@
+app:
+  name: Department
+  version: "1.0.0"
+  env: production
+
+auth:
+  access_token_ttl: 1h
+  refresh_token_ttl: 240h
+  jwt_secret: "__JWT_SECRET__"
+
+photo:
+  inventory_photo_dir: /app/data/photos
+  avatar_photo_dir: /app/data/avatars
+  max_photo_size: 10485760
+  max_photos: 10
+
+db:
+  local_path: /app/data/department.db
+  data_dir: /app/data
+  export_dir: /app/export
+
+logger:
+  level: info
+  development: false
+  encoding: json
+  output_paths: [stdout]
+  error_output_paths: [stderr]
+
+server:
+  host: "0.0.0.0"
+  port: "8080"
+  max_header_bytes: 1048576
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 120s

@@ -1,5 +1,5 @@
 {
-  ".gitignore": "fe5da1cee3933bebcd519390d3d3a378ad9f1ca9a352e2fb042d1a9e29659017",
+  ".gitignore": "846d999c54e0434e1bb2d0e533ba306ed4f2e780a697757bb50be730001dddf8",
   ".impeccable/design.json": "26de3079d2430ab0ad7b900c4fe86b67e47c86f6895ff121261db8073dec8986",
   "AGENTS.md": "7947973a7d73c45cd9423d5a0cc23fc2acad1a4499bcb3c1dcd936e3b3bcc379",
   "DESIGN.md": "fcebcf92c5fc4ff0eae2370cb67c47744981490f7165ac16ae511f5a49a56815",
@@ -77,7 +77,7 @@
   "pkg/valid/valid.go": "ae1555a7d151417ea712728d9e3f6de4567107052dac48b64a44df63c1295a7a",
   "pkg/valid/valid_test.go": "bb6afed95a4cceda29fdc2aaf5e8c46cc147ef2ce6d8e0853cd1641f638f37be",
   "PRODUCT.md": "c846dae096f74ee8da78ad15a7ed40d312782e1f74dca92521b2898c0607c871",
-  "PROJECT_STATE.md": "d2d846982c02f34216be52b2a89296ff554630ddcc0f90b10fe5be6bc616437c",
+  "PROJECT_STATE.md": "c9da447308d3b0d2a4ecfb7f759df54a2c8de4c2bdd48a7b8337c19ce29605a2",
   "README.md": "1e2f3dbcb858c29642cad37b0d7b96b30843e2eb954f99e29ad2fca4808cd319",
   "scripts/check.ps1": "b4f5e8b8aa86ac7446da7912f50619d05fec9ae6e2b848168e51e56e632de770",
   "scripts/demo/main.go": "83b17b89c7cba8722232ae0ba29435dc2d0d360dc8f7858986fdf1d933878a7b",

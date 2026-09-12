@@ -1,0 +1,16 @@
+services:
+  departament-mitm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: departament-mitm:latest
+    container_name: departament-mitm
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:8085:8080"
+    volumes:
+      - ./configs:/app/configs:ro
+      - ./data:/app/data
+      - ./export:/app/export
