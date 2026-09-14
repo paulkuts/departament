@@ -34,13 +34,21 @@ func (h *UserHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		users.GET("", h.ListAll)           // возвращает всех пользователей (активных и неактивных)
 		users.GET("/active", h.ListActive) // возвращает только активных пользователей
 		users.GET("/:id", h.GetByID)
-		users.PUT("/:id", requireRoles(adminKey), h.Update)
+		users.PUT("/:id", h.Update) // свой профиль — любой вошедший, чужой — только admin
 		users.DELETE("/:id", requireRoles(adminKey), h.Deactivate)
 		users.POST("/:id/activate", requireRoles(adminKey), h.Activate)
 		users.GET("/:id/history", h.History)
-		users.POST("/:id/avatar", requireRoles(adminKey), h.UploadAvatar)
-		users.DELETE("/:id/avatar", requireRoles(adminKey), h.DeleteAvatar)
+		users.POST("/:id/avatar", h.UploadAvatar) // свой аватар — любой вошедший, чужой — только admin
+		users.DELETE("/:id/avatar", h.DeleteAvatar)
 	}
+}
+
+// canEditProfile: свой профиль доступен любому вошедшему, чужой — только администратору.
+func canEditProfile(c *gin.Context, id string) bool {
+	if c.GetString(roleKey) == adminKey {
+		return true
+	}
+	return id != "" && id == c.GetString(userIDKey)
 }
 
 func (h *UserHandler) Create(c *gin.Context) {
@@ -140,6 +148,11 @@ func (h *UserHandler) Activate(c *gin.Context) {
 func (h *UserHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
+	if !canEditProfile(c, id) {
+		c.AbortWithStatusJSON(http.StatusForbidden, ErrorResponse{Error: "недостаточно прав"})
+		return
+	}
+
 	var req UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		handleValidationError(c, err)
@@ -150,6 +163,14 @@ func (h *UserHandler) Update(c *gin.Context) {
 	if err != nil {
 		handleError(c, err)
 		return
+	}
+
+	// Правка своего профиля: роль, доступ и почту меняет только администратор,
+	// присланные значения игнорируются (защита от самоповышения прав).
+	if c.GetString(roleKey) != adminKey {
+		req.Role = user.Role
+		req.IsActive = nil
+		req.Email = nil
 	}
 
 	user.FullName = req.FullName
@@ -230,6 +251,11 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 		return
 	}
 
+	if !canEditProfile(c, id) {
+		c.AbortWithStatusJSON(http.StatusForbidden, ErrorResponse{Error: "недостаточно прав"})
+		return
+	}
+
 	file, header, err := c.Request.FormFile("avatar")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "поле 'avatar' обязательно"})
@@ -259,6 +285,11 @@ func (h *UserHandler) UploadAvatar(c *gin.Context) {
 
 func (h *UserHandler) DeleteAvatar(c *gin.Context) {
 	id := c.Param("id")
+
+	if !canEditProfile(c, id) {
+		c.AbortWithStatusJSON(http.StatusForbidden, ErrorResponse{Error: "недостаточно прав"})
+		return
+	}
 
 	if err := h.userSvc.DeleteAvatar(c.Request.Context(), id); err != nil {
 		handleError(c, err)

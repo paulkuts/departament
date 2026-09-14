@@ -5,6 +5,8 @@ const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
 const admin = () => me?.role === 'admin';
 const canEditReference = () => me?.role === 'admin' || me?.role === 'staff';
+// Разделы, скрытые из меню сотрудника до доработки: доступ по прямой ссылке остаётся.
+const staffHiddenPages = ['inventory','reference'];
 const roles = {admin:'Администратор',staff:'Сотрудник',teacher:'Преподаватель',student:'Студент'};
 const types = {equipment:'Оборудование',inventory:'Мебель и инвентарь',raw_material:'Химикаты и материалы',other:'Посуда и другое'};
 const keyStatuses = {available:'Свободен',issued:'Выдан',lost:'Утерян'};
@@ -35,8 +37,10 @@ function shell(page) {
   rail.firstChild.append(el('span',{class:'brand-mark','aria-hidden':'true'},'▣'),el('strong',{},'Контур кафедры'),el('small',{},'Лабораторный журнал'));
   const nav = el('nav',{class:'nav','aria-label':'Разделы'});
   for (const [group,items] of groups) {
+    const visible = items.filter(([key]) => admin() || !staffHiddenPages.includes(key));
+    if (!visible.length) continue;
     if (group) nav.append(el('p',{class:'nav-label'},group));
-    for (const [key,title,icon] of items) nav.append(el('a',{href:`#/${key}`,'aria-current':page===key?'page':null,onclick:()=>rail.classList.remove('open')},el('span',{class:'nav-icon','aria-hidden':'true'},icon),title));
+    for (const [key,title,icon] of visible) nav.append(el('a',{href:`#/${key}`,'aria-current':page===key?'page':null,onclick:()=>rail.classList.remove('open')},el('span',{class:'nav-icon','aria-hidden':'true'},icon),title));
   }
   rail.append(nav,el('div',{class:'rail-bottom'},el('strong',{},me ? roles[me.role] || me.role : 'Гостевой доступ'),me ? 'Личное рабочее пространство' : 'Внутренние реестры доступны после входа'));
   const user = me ? actions(el('span',{class:'avatar','aria-hidden':'true'},initials(me.full_name)),link(me.full_name,'#/profile'),el('small',{},roles[me.role]),button('Выйти', async()=>{await api.logout(); me=null; navTo('welcome');})) : actions(link('Войти','#/login','btn'),link('Создать аккаунт','#/register','btn primary'));
@@ -232,14 +236,31 @@ async function users(q) {
   return el('div',{},head('Коллеги и доступ','Аккаунты кафедры. Только администраторы назначают роли и управляют доступом.',button('Создать аккаунт',()=>userForm(),'primary')),sheet(filterBar('users',q,[input('search','Имя или почта',q.get('search')||'',{placeholder:'Найти коллегу…'}),select('role','Роль',q.get('role')||'',[['','Все роли'],...choose(roles)])]),table(['Коллега','Роль','Кабинет','Доступ'],filtered.map(u=>[el('div',{},link(u.full_name,`#/users/${u.id}`,'record-link'),el('small',{},u.email)),roles[u.role]||u.role,u.office,status(u.is_active?'Активен':'Отключён',u.is_active?'good':'warn')])),el('div',{class:'sheet-foot'},`${filtered.length} аккаунтов`)));
 }
 async function profile(u) {
-  const own=u.id===me.id;
-  const root=el('div',{},head(own?'Мой профиль':u.full_name,`${roles[u.role]||u.role}${u.position?' · '+u.position:''}`,admin()?button('Редактировать профиль',()=>userForm(u),'primary'):null),sheet(sh(u.full_name,own?'Личная рабочая область':'Профиль сотрудника'),body(details([['Почта',u.email],['Кабинет',u.office],['Телефон',u.phone],['Дата рождения',date(u.date_of_birth)],['Роль',roles[u.role]],['Доступ',status(u.is_active?'Активен':'Отключён',u.is_active?'good':'warn')]])),body(actions(link('Публикации',`#/articles?author_id=${encodeURIComponent(u.id)}`,'btn'),own?link('Мои заметки','#/notes','btn'):null))));
+  const own=u.id===me.id,mayEdit=own||admin();
+  const root=el('div',{},head(own?'Мой профиль':u.full_name,`${roles[u.role]||u.role}${u.position?' · '+u.position:''}`,mayEdit?button('Редактировать профиль',()=>userForm(u),'primary'):null),sheet(sh(u.full_name,own?'Личная рабочая область':'Профиль сотрудника'),body(details([['Почта',u.email],['Кабинет',u.office],['Телефон',u.phone],['Дата рождения',date(u.date_of_birth)],['Роль',roles[u.role]],['Доступ',status(u.is_active?'Активен':'Отключён',u.is_active?'good':'warn')]])),body(actions(link('Публикации',`#/articles?author_id=${encodeURIComponent(u.id)}`,'btn'),own?link('Мои заметки','#/notes','btn'):null))));
   if(u.avatar)root.append(sheet(sh('Фото профиля'),body(await blobImage(api.avatarUrl(u.id),u.full_name))));
-  if(admin())root.append(sheet(sh('Фото профиля'),body(upload('Загрузить аватар',file=>api.uploadUserAvatar(u.id,file)),button('Удалить аватар',()=>remove('Удалить аватар',u.full_name,()=>api.deleteUserAvatar(u.id)),'quiet'))),button(u.is_active?'Отключить доступ':'Включить доступ',()=>confirmAction(u.is_active?'Отключить доступ':'Включить доступ',`Профиль: ${u.full_name}. История операций сохранится.`,async()=>{if(u.is_active)await api.deactivateUser(u.id);else await api.activateUser(u.id);route();}),'danger'));
+  if(mayEdit)root.append(sheet(sh('Фото профиля'),body(upload('Загрузить аватар',file=>api.uploadUserAvatar(u.id,file)),u.avatar?button('Удалить аватар',()=>remove('Удалить аватар',u.full_name,()=>api.deleteUserAvatar(u.id)),'quiet'):null)));
+  if(admin())root.append(button(u.is_active?'Отключить доступ':'Включить доступ',()=>confirmAction(u.is_active?'Отключить доступ':'Включить доступ',`Профиль: ${u.full_name}. История операций сохранится.`,async()=>{if(u.is_active)await api.deactivateUser(u.id);else await api.activateUser(u.id);route();}),'danger'));
   const history=await api.getUserHistory(u.id);root.append(sheet(sh('История ключей'),table(['Ключ','Операция','Дата','Комментарий'],(history||[]).map(h=>[link(`Ключ ${h.key_id}`,`#/keys/${h.key_id}`),{issue:'Выдача',return:'Возврат',lost:'Утеря',restore:'Отмена утери'}[h.action_type]||h.action_type,date(h.timestamp,true),h.comment]))));return root;
 }
 function userForm(u) {
-  modal(u?'Профиль и права':'Новый аккаунт',form([input('full_name','Имя и фамилия',u?.full_name,{required:true,minlength:3}),input('email','Почта',u?.email,{type:'email',required:true}),...(!u?[input('password','Начальный пароль','',{type:'password',required:true,minlength:8,autocomplete:'new-password'})]:[]),select('role','Роль',u?.role||'staff',choose(roles)),el('p',{class:'form-hint'},'Администратор имеет полный доступ, включая назначение других администраторов.'),input('position','Должность',u?.position),el('div',{class:'form-grid'},input('office','Кабинет',u?.office),input('phone','Телефон',u?.phone,{type:'tel'})),input('date_of_birth','Дата рождения',u?.date_of_birth?.slice(0,10),{type:'date'})],'Сохранить',async data=>{if(u)await api.updateUser(u.id,{...nullable(data),is_active:u.is_active});else await api.createUser(nullable(data));if(u?.id===me.id)me=await api.getMe();closeModal();route();}));
+  const self=!!u&&u.id===me.id,manage=admin();
+  const fields=[
+    input('full_name','Имя и фамилия',u?.full_name,{required:true,minlength:3}),
+    ...(manage?[input('email','Почта',u?.email,{type:'email',required:true})]:[]),
+    ...(!u?[input('password','Начальный пароль','',{type:'password',required:true,minlength:8,autocomplete:'new-password'})]:[]),
+    ...(manage?[select('role','Роль',u?.role||'staff',choose(roles)),el('p',{class:'form-hint'},'Администратор имеет полный доступ, включая назначение других администраторов.')]:[el('p',{class:'form-hint'},'Почту, роль и доступ меняет администратор.')]),
+    input('position','Должность',u?.position),
+    el('div',{class:'form-grid'},input('office','Кабинет',u?.office),input('phone','Телефон',u?.phone,{type:'tel'})),
+    input('date_of_birth','Дата рождения',u?.date_of_birth?.slice(0,10),{type:'date'})
+  ];
+  modal(u?(self?'Мой профиль':'Профиль и права'):'Новый аккаунт',form(fields,'Сохранить',async data=>{
+    if(u){
+      const payload={...nullable(data),is_active:u.is_active};
+      if(!manage){payload.role=u.role;payload.email=u.email;}
+      await api.updateUser(u.id,payload);
+    }else await api.createUser(nullable(data));
+    if(u?.id===me.id)me=await api.getMe();closeModal();route();}));
 }
 async function notes(id) {
   const list=await request('/notes'),selected=id?list.find(n=>String(n.id)===String(id)):null;
