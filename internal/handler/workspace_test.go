@@ -48,6 +48,9 @@ func workspaceTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 		if id == "a" {
 			role = "admin"
 		}
+		if header := c.GetHeader("X-Role"); header != "" {
+			role = header
+		}
 		c.Set(roleKey, role)
 	})
 	w.RegisterRoutes(private)

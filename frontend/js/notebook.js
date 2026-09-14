@@ -4,6 +4,7 @@ import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
 const admin = () => me?.role === 'admin';
+const canEditReference = () => me?.role === 'admin' || me?.role === 'staff';
 const roles = {admin:'Администратор',staff:'Сотрудник',teacher:'Преподаватель',student:'Студент'};
 const types = {equipment:'Оборудование',inventory:'Мебель и инвентарь',raw_material:'Химикаты и материалы',other:'Посуда и другое'};
 const keyStatuses = {available:'Свободен',issued:'Выдан',lost:'Утерян'};
@@ -249,7 +250,7 @@ async function notes(id) {
 async function reference(q) {
   const list=await request('/reference'),search=(q.get('search')||'').toLowerCase();
   const filtered=list.filter(x=>`${x.category} ${x.name} ${x.value} ${x.notes}`.toLowerCase().includes(search));
-  return el('div',{},head('Справочник','Полезные сведения кафедры. Актуальные записи поддерживают администраторы.',admin()?button('Добавить запись',()=>referenceForm(),'primary'):null),sheet(filterBar('reference',q,[input('search','Поиск по справочнику',q.get('search')||'',{placeholder:'Тема, название или значение…'})]),table(['Раздел','Название','Сведения','Примечание',...(admin()?['']:[])],filtered.map(x=>[x.category,x.name,external(x.value,x.value),x.notes,...(admin()?[actions(button('Изменить',()=>referenceForm(x),'quiet'),button('Удалить',()=>remove('Удалить запись',x.name,()=>request(`/reference/${x.id}`,'DELETE')),'quiet'))]:[])]),'Администратор может добавить контакты служб, инструкции и полезные ссылки.')));
+  return el('div',{},head('Справочник','Полезные сведения кафедры. Записи ведут сотрудники и администраторы.',canEditReference()?button('Добавить запись',()=>referenceForm(),'primary'):null),sheet(filterBar('reference',q,[input('search','Поиск по справочнику',q.get('search')||'',{placeholder:'Тема, название или значение…'})]),table(['Раздел','Название','Сведения','Примечание',...(canEditReference()?['']:[])],filtered.map(x=>[x.category,x.name,external(x.value,x.value),x.notes,...(canEditReference()?[actions(button('Изменить',()=>referenceForm(x),'quiet'),button('Удалить',()=>remove('Удалить запись',x.name,()=>request(`/reference/${x.id}`,'DELETE')),'quiet'))]:[])]),'Сотрудник может добавить контакты служб, инструкции и полезные ссылки.')));
 }
 function referenceForm(x) {modal(x?'Редактировать запись':'Новая запись справочника',form([input('category','Раздел',x?.category,{required:true}),input('name','Название',x?.name,{required:true}),input('value','Сведения или ссылка',x?.value,{required:true,type:'textarea'}),input('notes','Примечание',x?.notes,{type:'textarea'})],'Сохранить',async data=>{await request(x?`/reference/${x.id}`:'/reference',x?'PUT':'POST',data);closeModal();route();}));}
 function assistants() {
