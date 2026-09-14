@@ -133,10 +133,12 @@ type ReturnKeyRequest struct {
 type KeyLogResponse struct {
 	ID         int64   `json:"id"`
 	KeyID      int64   `json:"key_id"`
-	UserID     string  `json:"user_id"`
+	UserID     *string `json:"user_id"`
 	ActionType string  `json:"action_type"`
 	Timestamp  string  `json:"timestamp"`
 	Comment    *string `json:"comment,omitempty"`
+	GuestName  *string `json:"guest_name,omitempty"`
+	GuestPhone *string `json:"guest_phone,omitempty"`
 }
 
 func ToKeyLogResponse(l *models.KeyLog) KeyLogResponse {
@@ -147,6 +149,8 @@ func ToKeyLogResponse(l *models.KeyLog) KeyLogResponse {
 		ActionType: string(l.ActionType),
 		Timestamp:  l.Timestamp.Format("2006-01-02 15:04:05"),
 		Comment:    l.Comment,
+		GuestName:  l.GuestName,
+		GuestPhone: l.GuestPhone,
 	}
 }
 

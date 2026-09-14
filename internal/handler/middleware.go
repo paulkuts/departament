@@ -141,6 +141,29 @@ func (h *Handler) authMiddleware(c *gin.Context) {
 	c.Next()
 }
 
+// optionalAuth узнаёт сотрудника, если он передал корректный токен доступа, но
+// не мешает гостю: без токена запрос продолжается как гостевой.
+func (h *Handler) optionalAuth(c *gin.Context) {
+	token, err := getAccessToken(c)
+	if err != nil {
+		c.Next()
+		return
+	}
+	userID, _, err := h.auth.svc.ParseToken(c.Request.Context(), token)
+	if err != nil {
+		c.Next()
+		return
+	}
+	user, err := h.userSvc.GetByID(c.Request.Context(), userID)
+	if err != nil || user == nil || !user.IsActive {
+		c.Next()
+		return
+	}
+	c.Set(userIDKey, userID)
+	c.Set(roleKey, user.Role)
+	c.Next()
+}
+
 func getAccessToken(c *gin.Context) (string, error) {
 	token := c.GetHeader(authHeader)
 	if token == "" {

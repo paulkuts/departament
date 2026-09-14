@@ -1,20 +1,34 @@
 package handler
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
+	"errors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 	"github.com/skip2/go-qrcode"
+	"mitm-departament/internal/service"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
-type WorkspaceHandler struct{ db *sqlx.DB }
+// guestCookie отмечает браузер гостя: по нему сервер узнаёт, что ключ,
+// взятый по QR, сдаёт тот же человек.
+const guestCookie = "key_guest"
 
-func (h *Handler) SetWorkspace(w *WorkspaceHandler)     { h.workspace = w }
-func NewWorkspaceHandler(db *sqlx.DB) *WorkspaceHandler { return &WorkspaceHandler{db: db} }
+type WorkspaceHandler struct {
+	db   *sqlx.DB
+	keys KeyService
+}
+
+func (h *Handler) SetWorkspace(w *WorkspaceHandler) { h.workspace = w }
+func NewWorkspaceHandler(db *sqlx.DB, keys KeyService) *WorkspaceHandler {
+	return &WorkspaceHandler{db: db, keys: keys}
+}
 func (h *WorkspaceHandler) RegisterPublicRoutes(r *gin.RouterGroup) {
 	r.GET("/public/keys/:public_id", h.publicKey)
 	r.POST("/public/keys/:public_id/requests", h.requestKey)
@@ -178,8 +192,20 @@ func (h *WorkspaceHandler) returnLoan(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "returned"})
 	}
 }
+
+// publicLink создаёт постоянную ссылку ключа. Перевыпуск (renew) заменяет её:
+// старые наклейки с QR перестают работать.
 func (h *WorkspaceHandler) publicLink(c *gin.Context) {
-	_, err := h.db.ExecContext(c.Request.Context(), "INSERT INTO key_public_links(key_id,public_id) SELECT id,? FROM keys WHERE id=? ON CONFLICT(key_id) DO NOTHING", uuid.NewString(), c.Param("id"))
+	var b struct {
+		Renew bool `json:"renew"`
+	}
+	_ = c.ShouldBindJSON(&b)
+
+	query := "INSERT INTO key_public_links(key_id,public_id) SELECT id,? FROM keys WHERE id=? ON CONFLICT(key_id) DO NOTHING"
+	if b.Renew {
+		query = "INSERT INTO key_public_links(key_id,public_id) SELECT id,? FROM keys WHERE id=? ON CONFLICT(key_id) DO UPDATE SET public_id=excluded.public_id"
+	}
+	_, err := h.db.ExecContext(c.Request.Context(), query, uuid.NewString(), c.Param("id"))
 	if err != nil {
 		workspaceError(c, 500, "Не удалось создать ссылку")
 		return
@@ -191,17 +217,126 @@ func (h *WorkspaceHandler) publicLink(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"public_id": id, "path": "/public/keys/" + id})
 }
+
+// publicKey отдаёт состояние ключа по QR-ссылке. Чужих данных не раскрывает:
+// видно только состояние, и держите ли ключ лично вы.
 func (h *WorkspaceHandler) publicKey(c *gin.Context) {
 	var k struct {
-		KeyNumber string `db:"key_number" json:"key_number"`
-		Room      string `db:"room_description" json:"room_description"`
-		Status    string `db:"status" json:"status"`
+		ID        int64  `db:"id"`
+		KeyNumber string `db:"key_number"`
+		Room      string `db:"room_description"`
+		Status    string `db:"status"`
 	}
-	if h.db.GetContext(c.Request.Context(), &k, "SELECT k.key_number,k.room_description,k.status FROM keys k JOIN key_public_links p ON p.key_id=k.id WHERE p.public_id=?", c.Param("public_id")) != nil {
-		workspaceError(c, 404, "Ключ не найден")
+	if h.db.GetContext(c.Request.Context(), &k, "SELECT k.id,k.key_number,k.room_description,k.status FROM keys k JOIN key_public_links p ON p.key_id=k.id WHERE p.public_id=?", c.Param("public_id")) != nil {
+		workspaceError(c, 404, "Ссылка недействительна. Обратитесь к администратору кафедры.")
 		return
 	}
-	c.JSON(200, k)
+
+	holder, err := h.keys.HolderInfo(c.Request.Context(), k.ID)
+	if err != nil {
+		workspaceError(c, 500, "Не удалось прочитать состояние ключа")
+		return
+	}
+	token, _ := c.Cookie(guestCookie)
+	userID := c.GetString(userIDKey)
+	heldByYou := holder != nil && (userID != "" && holder.UserID != nil && *holder.UserID == userID ||
+		token != "" && holder.GuestToken != nil && *holder.GuestToken == token)
+
+	resp := gin.H{
+		"key_number":       k.KeyNumber,
+		"room_description": k.Room,
+		"status":           k.Status,
+		"needs_guest_data": userID == "" && token == "",
+		"held_by_you":      heldByYou,
+	}
+	if heldByYou {
+		resp["held_since"] = holder.Timestamp.UTC().Format(time.RFC3339)
+	}
+	c.JSON(200, resp)
+}
+
+// ScanKey обрабатывает сканирование QR на ключе: взять, сдать или принять ключ
+// от предыдущего держателя. Сотрудник определяется по токену доступа, гость —
+// по метке браузера и названному имени с телефоном.
+func (h *WorkspaceHandler) ScanKey(c *gin.Context) {
+	var keyID int64
+	if h.db.GetContext(c.Request.Context(), &keyID, "SELECT k.id FROM keys k JOIN key_public_links p ON p.key_id=k.id WHERE p.public_id=?", c.Param("public_id")) != nil {
+		workspaceError(c, 404, "Ссылка недействительна. Обратитесь к администратору кафедры.")
+		return
+	}
+
+	actor := service.ScanActor{}
+	var b struct {
+		Name   string `json:"name" binding:"max=250"`
+		Phone  string `json:"phone" binding:"max=50"`
+		Intent string `json:"intent" binding:"max=10"`
+	}
+	_ = c.ShouldBindJSON(&b)
+	if b.Intent == service.IntentTake || b.Intent == service.IntentReturn {
+		actor.Intent = b.Intent
+	}
+	if userID := c.GetString(userIDKey); userID != "" {
+		actor.UserID = userID
+	} else {
+		if token, err := c.Cookie(guestCookie); err == nil {
+			actor.Token = token
+		}
+		actor.Name, actor.Phone = b.Name, b.Phone
+		// Первый скан гостя: запоминаем браузер, чтобы повторный скан был сдачей.
+		if actor.Token == "" && strings.TrimSpace(actor.Name) != "" && strings.TrimSpace(actor.Phone) != "" {
+			token, err := newGuestToken()
+			if err != nil {
+				workspaceError(c, 500, "Не удалось начать работу с ключом")
+				return
+			}
+			actor.Token = token
+			http.SetCookie(c.Writer, &http.Cookie{
+				Name:     guestCookie,
+				Value:    token,
+				Path:     "/",
+				MaxAge:   365 * 24 * 60 * 60,
+				Secure:   true, // сайт работает только за HTTPS
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+			})
+		}
+	}
+
+	out, err := h.keys.Scan(c.Request.Context(), keyID, actor)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrKeyLost):
+			workspaceError(c, 409, "Ключ числится утерянным. Обратитесь к администратору кафедры.")
+		case errors.Is(err, service.ErrGuestDataNeeded):
+			workspaceError(c, 400, "Укажите имя и телефон")
+		case errors.Is(err, service.ErrScanConflict):
+			workspaceError(c, 409, "Ключ только что изменился. Отсканируйте QR ещё раз.")
+		case errors.Is(err, service.ErrNotHolder):
+			workspaceError(c, 409, "Ключ сейчас не у вас: возможно, его уже сдали.")
+		case errors.Is(err, service.ErrAlreadyHolder):
+			workspaceError(c, 409, "Ключ уже записан за вами.")
+		default:
+			workspaceError(c, 404, "Ключ не найден")
+		}
+		return
+	}
+
+	c.JSON(200, gin.H{
+		"action":           string(out.Action),
+		"transferred":      out.Transferred,
+		"key_number":       out.KeyNumber,
+		"room_description": out.Room,
+		"holder_name":      out.HolderName, // ФИО гостя; сотрудник подставляет своё имя сам
+	})
+}
+
+// newGuestToken — случайная метка браузера гостя.
+func newGuestToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
 }
 func (h *WorkspaceHandler) keyQR(c *gin.Context) {
 	var id string

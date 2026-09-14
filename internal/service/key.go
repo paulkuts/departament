@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"mitm-departament/internal/models"
@@ -151,7 +152,7 @@ func (s *KeyService) Issue(ctx context.Context, keyID int64, userID string, comm
 	// Записываем в журнал
 	log := &models.KeyLog{
 		KeyID:      keyID,
-		UserID:     userID,
+		UserID:     optional(userID),
 		ActionType: models.ActionIssue,
 		Timestamp:  time.Now(),
 		Comment:    &comment,
@@ -200,19 +201,20 @@ func (s *KeyService) ReturnForUser(ctx context.Context, keyID int64, actorID, co
 		return fmt.Errorf("key %d is not issued (current status: %s)", keyID, status)
 	}
 
-	// Находим последнего держателя
-	var userID string
+	// Находим последнего держателя. У гостя user_id пуст — тогда известен
+	// только его телефон (в журнал он попадает вместе с ФИО).
+	var holder *string
 	err = tx.QueryRowxContext(ctx,
 		`SELECT user_id FROM key_logs 
 		 WHERE key_id = ? AND action_type = ? 
 		 ORDER BY timestamp DESC, id DESC LIMIT 1`,
 		keyID, models.ActionIssue,
-	).Scan(&userID)
+	).Scan(&holder)
 	if err != nil {
 		return fmt.Errorf("find last holder: %w", err)
 	}
 
-	if actorID != "" && actorID != userID {
+	if actorID != "" && (holder == nil || *holder != actorID) {
 		return fmt.Errorf("not holder")
 	}
 	// Обновляем статус ключа
@@ -224,7 +226,7 @@ func (s *KeyService) ReturnForUser(ctx context.Context, keyID int64, actorID, co
 	// Записываем возврат в журнал
 	log := &models.KeyLog{
 		KeyID:      keyID,
-		UserID:     userID,
+		UserID:     holder, // возврат пишем на держателя, даже если он гость
 		ActionType: models.ActionReturn,
 		Timestamp:  time.Now(),
 		Comment:    &comment,
@@ -241,7 +243,7 @@ func (s *KeyService) ReturnForUser(ctx context.Context, keyID int64, actorID, co
 
 	s.log.Info("key returned",
 		zap.Int64("key_id", keyID),
-		zap.String("user_id", userID),
+		zap.Any("user_id", holder),
 	)
 	return nil
 }
@@ -286,8 +288,8 @@ func (s *KeyService) MarkLost(ctx context.Context, keyID int64, actorID, comment
 	// Записываем в журнал
 	log := &models.KeyLog{
 		KeyID:      keyID,
-		UserID:     actorID, // автор операции: администратор
-		ActionType: "lost",
+		UserID:     optional(actorID), // автор операции: администратор
+		ActionType: models.ActionLost,
 		Timestamp:  time.Now(),
 		Comment:    &comment,
 	}
@@ -317,8 +319,8 @@ func (s *KeyService) RestoreLost(ctx context.Context, keyID int64, actorID, comm
 	// Записываем в журнал
 	log := &models.KeyLog{
 		KeyID:      keyID,
-		UserID:     actorID, // автор операции: администратор
-		ActionType: "restore",
+		UserID:     optional(actorID), // автор операции: администратор
+		ActionType: models.ActionRestore,
 		Timestamp:  time.Now(),
 		Comment:    &comment,
 	}
@@ -355,6 +357,276 @@ func (s *KeyService) GetCurrentHolder(ctx context.Context, keyID int64) (*models
 		return nil, fmt.Errorf("get current holder: %w", err)
 	}
 	return holder, nil
+}
+
+// ScanActor — кто физически отсканировал QR на ключе.
+type ScanActor struct {
+	UserID string // сотрудник, если вошёл в систему
+	Name   string // гость: ФИО
+	Phone  string // гость: телефон
+	Token  string // гость: метка браузера (cookie) — по ней узнаём его при повторном скане
+
+	// Intent — осознанное действие с экрана: взять ключ или сдать его. Пустое
+	// значение — обычный скан QR: сервер сам решает по состоянию ключа.
+	Intent string
+}
+
+const (
+	IntentTake   = "take"
+	IntentReturn = "return"
+)
+
+// ScanOutcome — что произошло с ключом после сканирования.
+type ScanOutcome struct {
+	Action      models.ActionType // issue — ключ у вас, return — ключ сдан
+	KeyNumber   string
+	Room        string
+	HolderName  string // ФИО гостя-держателя (для сотрудника имя подставляет обработчик)
+	Transferred bool   // ключ перешёл от предыдущего держателя
+}
+
+var (
+	// ErrKeyLost — ключ помечен утерянным: скан ничего не меняет.
+	ErrKeyLost = errors.New("ключ числится утерянным")
+	// ErrGuestDataNeeded — гость без метки браузера обязан назвать себя.
+	ErrGuestDataNeeded = errors.New("нужны имя и телефон")
+	// ErrScanConflict — состояние ключа изменилось между чтением и записью.
+	ErrScanConflict = errors.New("состояние ключа изменилось, повторите скан")
+	// ErrNotHolder — кнопка «сдать», но ключ уже не у этого человека.
+	ErrNotHolder = errors.New("ключ сейчас не у вас")
+	// ErrAlreadyHolder — кнопка «взять», но ключ уже записан за этим человеком.
+	ErrAlreadyHolder = errors.New("ключ уже у вас")
+)
+
+// Scan обрабатывает сканирование QR на ключе: взять, сдать или принять ключ от
+// предыдущего держателя. Статус ключа и журнал меняются в одной транзакции,
+// поэтому ключ не может остаться выданным без записи о том, кто его взял.
+func (s *KeyService) Scan(ctx context.Context, keyID int64, actor ScanActor) (*ScanOutcome, error) {
+	actor.Name = strings.TrimSpace(actor.Name)
+	actor.Phone = strings.TrimSpace(actor.Phone)
+
+	// Гость обязан назваться, когда ключ переходит к нему: иначе в журнале
+	// останется ключ, выданный неизвестно кому. Сдача по метке браузера или
+	// телефону имени не требует — человека уже видно по текущей записи.
+	guest := actor.UserID == ""
+	guestNamed := actor.Name != "" && actor.Phone != ""
+	if guest && actor.Token == "" && !guestNamed {
+		return nil, ErrGuestDataNeeded
+	}
+
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var key struct {
+		KeyNumber string           `db:"key_number"`
+		Room      string           `db:"room_description"`
+		Status    models.KeyStatus `db:"status"`
+	}
+	if err := tx.GetContext(ctx, &key,
+		`SELECT key_number, room_description, status FROM keys WHERE id = ?`, keyID); err != nil {
+		return nil, fmt.Errorf("key %d not found", keyID)
+	}
+	if key.Status == models.KeyStatusLost {
+		return nil, ErrKeyLost
+	}
+
+	// Держатель — последняя выдача по ключу.
+	holder := &models.KeyLog{}
+	holderKnown := tx.GetContext(ctx, holder,
+		`SELECT id, user_id, action_type, guest_name, guest_phone, guest_token
+		 FROM key_logs WHERE key_id = ? AND action_type = ?
+		 ORDER BY id DESC LIMIT 1`, keyID, models.ActionIssue) == nil
+
+	out := &ScanOutcome{KeyNumber: key.KeyNumber, Room: key.Room}
+
+	// Ключ свободен — выдаём тому, кто сканировал.
+	if key.Status == models.KeyStatusAvailable {
+		if actor.Intent == IntentReturn {
+			return nil, ErrNotHolder
+		}
+		if guest && !guestNamed {
+			return nil, ErrGuestDataNeeded
+		}
+		if err := s.setKeyStatus(ctx, tx, keyID, models.KeyStatusAvailable, models.KeyStatusIssued); err != nil {
+			return nil, err
+		}
+		if err := appendScan(ctx, tx, keyID, actor, models.ActionIssue, "скан QR: выдача"); err != nil {
+			return nil, err
+		}
+		out.Action = models.ActionIssue
+		out.HolderName = actor.Name
+		return out, tx.Commit()
+	}
+
+	// Ключ выдан. Сканировал тот же человек — значит сдал.
+	if holderKnown && actor.matches(holder) {
+		if actor.Intent == IntentTake {
+			return nil, ErrAlreadyHolder
+		}
+		back := actorFromLog(holder)
+		if err := s.setKeyStatus(ctx, tx, keyID, models.KeyStatusIssued, models.KeyStatusAvailable); err != nil {
+			return nil, err
+		}
+		if err := appendScan(ctx, tx, keyID, back, models.ActionReturn, "скан QR: возврат"); err != nil {
+			return nil, err
+		}
+		out.Action = models.ActionReturn
+		out.HolderName = back.Name
+		return out, tx.Commit()
+	}
+
+	// Сканировал другой человек — закрываем прошлую выдачу и оформляем новую.
+	if actor.Intent == IntentReturn {
+		return nil, ErrNotHolder
+	}
+	if guest && !guestNamed {
+		return nil, ErrGuestDataNeeded
+	}
+	if err := s.setKeyStatus(ctx, tx, keyID, models.KeyStatusIssued, models.KeyStatusIssued); err != nil {
+		return nil, err
+	}
+	if holderKnown {
+		if err := appendScan(ctx, tx, keyID, actorFromLog(holder), models.ActionReturn, "скан QR: передача ключа"); err != nil {
+			return nil, err
+		}
+	}
+	if err := appendScan(ctx, tx, keyID, actor, models.ActionIssue, "скан QR: приём ключа"); err != nil {
+		return nil, err
+	}
+	out.Action = models.ActionIssue
+	out.HolderName = actor.Name
+	out.Transferred = holderKnown
+	return out, tx.Commit()
+}
+
+// HolderInfo возвращает текущего держателя ключа; nil — если ключ свободен,
+// утерян или держатель неизвестен (записи старого формата).
+func (s *KeyService) HolderInfo(ctx context.Context, keyID int64) (*models.KeyLog, error) {
+	var status models.KeyStatus
+	if err := s.db.GetContext(ctx, &status, `SELECT status FROM keys WHERE id = ?`, keyID); err != nil {
+		return nil, fmt.Errorf("key %d not found", keyID)
+	}
+	if status != models.KeyStatusIssued {
+		return nil, nil
+	}
+
+	holder := &models.KeyLog{}
+	err := s.db.GetContext(ctx, holder,
+		`SELECT id, key_id, user_id, action_type, timestamp, comment, guest_name, guest_phone, guest_token
+		 FROM key_logs WHERE key_id = ? AND action_type = ?
+		 ORDER BY id DESC LIMIT 1`, keyID, models.ActionIssue)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("current holder: %w", err)
+	}
+	return holder, nil
+}
+
+// setKeyStatus меняет статус ключа только из ожидаемого состояния: защита от
+// двух одновременных сканов одного и того же QR.
+func (s *KeyService) setKeyStatus(ctx context.Context, tx *sqlx.Tx, keyID int64, from, to models.KeyStatus) error {
+	res, err := tx.ExecContext(ctx, `UPDATE keys SET status = ? WHERE id = ? AND status = ?`, to, keyID, from)
+	if err != nil {
+		return fmt.Errorf("update key status: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrScanConflict
+	}
+	return nil
+}
+
+// appendScan пишет событие сканирования: сотрудник — по user_id, гость — по
+// ФИО, телефону и метке браузера.
+func appendScan(ctx context.Context, tx *sqlx.Tx, keyID int64, actor ScanActor, action models.ActionType, comment string) error {
+	entry := &models.KeyLog{
+		KeyID:      keyID,
+		UserID:     optional(actor.UserID),
+		ActionType: action,
+		Timestamp:  time.Now(),
+		Comment:    optional(comment),
+	}
+	if actor.UserID == "" {
+		entry.GuestName = optional(actor.Name)
+		entry.GuestPhone = optional(actor.Phone)
+		entry.GuestToken = optional(actor.Token)
+	}
+	if _, err := tx.NamedExecContext(ctx,
+		`INSERT INTO key_logs (key_id, user_id, action_type, timestamp, comment, guest_name, guest_phone, guest_token)
+		 VALUES (:key_id, :user_id, :action_type, :timestamp, :comment, :guest_name, :guest_phone, :guest_token)`, entry); err != nil {
+		return fmt.Errorf("insert scan log: %w", err)
+	}
+	return nil
+}
+
+func actorFromLog(l *models.KeyLog) ScanActor {
+	if l == nil {
+		return ScanActor{}
+	}
+	return ScanActor{UserID: deref(l.UserID), Name: deref(l.GuestName), Phone: deref(l.GuestPhone), Token: deref(l.GuestToken)}
+}
+
+// matches — скан сделан тем же человеком, что и предыдущая выдача: для
+// сотрудника сверяем аккаунт, для гостя — метку браузера или номер телефона.
+func (a ScanActor) matches(l *models.KeyLog) bool {
+	if l == nil {
+		return false
+	}
+	if a.UserID != "" {
+		return l.UserID != nil && *l.UserID == a.UserID
+	}
+	if l.UserID != nil {
+		return false
+	}
+	if a.Token != "" && l.GuestToken != nil && *l.GuestToken == a.Token {
+		return true
+	}
+	return samePhone(a.Phone, deref(l.GuestPhone))
+}
+
+func samePhone(a, b string) bool {
+	digits := func(s string) string {
+		var out []rune
+		for _, r := range s {
+			if r >= '0' && r <= '9' {
+				out = append(out, r)
+			}
+		}
+		return string(out)
+	}
+	x, y := digits(a), digits(b)
+	if x == "" || y == "" {
+		return false
+	}
+	if len(x) > 10 {
+		x = x[len(x)-10:]
+	}
+	if len(y) > 10 {
+		y = y[len(y)-10:]
+	}
+	return x == y
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func optional(s string) *string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return &s
 }
 
 // Preserve audit history: only unused, non-issued keys can be physically removed.

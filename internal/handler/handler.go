@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"mitm-departament/internal/config"
 	"mitm-departament/internal/models"
+	"mitm-departament/internal/service"
 	"mitm-departament/pkg/ratelimiter"
 	"net/http"
 	"strings"
@@ -44,6 +45,8 @@ type KeyService interface {
 	HistoryForKey(ctx context.Context, keyID int64) ([]models.KeyLog, error)
 	HistoryForUser(ctx context.Context, userID string) ([]models.KeyLog, error)
 	GetCurrentHolder(ctx context.Context, keyID int64) (*models.KeyLog, error)
+	HolderInfo(ctx context.Context, keyID int64) (*models.KeyLog, error)
+	Scan(ctx context.Context, keyID int64, actor service.ScanActor) (*service.ScanOutcome, error)
 }
 
 type Handler struct {
@@ -110,6 +113,8 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		public.POST("/auth/register", h.user.Register)
 		if h.workspace != nil {
 			h.workspace.RegisterPublicRoutes(public)
+			// Скан QR: сотрудник определяется по токену, гость — по метке браузера.
+			public.POST("/public/keys/:public_id/scan", h.optionalAuth, h.workspace.ScanKey)
 		}
 	}
 

@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap"
 	"image/png"
+	"mitm-departament/internal/repository"
+	"mitm-departament/internal/service"
 	_ "modernc.org/sqlite"
 	"net/http/httptest"
 	"os"
@@ -21,7 +24,7 @@ func workspaceTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	for _, p := range []string{"../db/migration/20260325120000_init_schema.up.sql", "../db/migration/20260911120000_workspace.up.sql", "../db/migration/20260911120000_workspace.up.sql"} {
+	for _, p := range []string{"../db/migration/20260325120000_init_schema.up.sql", "../db/migration/20260911120000_workspace.up.sql", "../db/migration/20260914120000_key_scans.up.sql"} {
 		b, e := os.ReadFile(p)
 		if e != nil {
 			t.Fatal(e)
@@ -35,7 +38,8 @@ func workspaceTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 	db.MustExec("INSERT INTO keys(id,key_number,room_description) VALUES(1,'K1','Lab')")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	w := NewWorkspaceHandler(db)
+	keys := service.NewKeyService(repository.NewKeyRepo(db, zap.NewNop()), repository.NewKeyLogRepo(db, zap.NewNop()), db, zap.NewNop())
+	w := NewWorkspaceHandler(db, keys)
 	w.RegisterPublicRoutes(r.Group("/api"))
 	private := r.Group("/api", func(c *gin.Context) {
 		id := c.GetHeader("X-User")
