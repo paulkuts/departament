@@ -551,7 +551,6 @@ func appendScan(ctx context.Context, tx *sqlx.Tx, keyID int64, actor ScanActor, 
 		KeyID:      keyID,
 		UserID:     optional(actor.UserID),
 		ActionType: action,
-		Timestamp:  time.Now(),
 		Comment:    optional(comment),
 	}
 	if actor.UserID == "" {
@@ -560,8 +559,9 @@ func appendScan(ctx context.Context, tx *sqlx.Tx, keyID int64, actor ScanActor, 
 		entry.GuestToken = optional(actor.Token)
 	}
 	if _, err := tx.NamedExecContext(ctx,
-		`INSERT INTO key_logs (key_id, user_id, action_type, timestamp, comment, guest_name, guest_phone, guest_token)
-		 VALUES (:key_id, :user_id, :action_type, :timestamp, :comment, :guest_name, :guest_phone, :guest_token)`, entry); err != nil {
+		// Время ставит база (CURRENT_TIMESTAMP, UTC) — единый формат со всей базой.
+		`INSERT INTO key_logs (key_id, user_id, action_type, comment, guest_name, guest_phone, guest_token)
+		 VALUES (:key_id, :user_id, :action_type, :comment, :guest_name, :guest_phone, :guest_token)`, entry); err != nil {
 		return fmt.Errorf("insert scan log: %w", err)
 	}
 	return nil

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"mitm-departament/internal/models"
 )
 
@@ -147,7 +149,7 @@ func ToKeyLogResponse(l *models.KeyLog) KeyLogResponse {
 		KeyID:      l.KeyID,
 		UserID:     l.UserID,
 		ActionType: string(l.ActionType),
-		Timestamp:  l.Timestamp.Format("2006-01-02 15:04:05"),
+		Timestamp:  l.Timestamp.UTC().Format(time.RFC3339), // с зоной: телефон показывает своё время
 		Comment:    l.Comment,
 		GuestName:  l.GuestName,
 		GuestPhone: l.GuestPhone,

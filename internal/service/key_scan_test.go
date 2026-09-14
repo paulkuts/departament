@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap"
@@ -147,6 +148,19 @@ func TestScanGuestTakesKey(t *testing.T) {
 	}
 	if name == nil || *name != "Иван Петров" || phone == nil || *phone != "+7 999 123-45-67" || token == nil || *token != "tok-1" {
 		t.Fatalf("сведения о госте записаны неверно: %v %v %v", name, phone, token)
+	}
+
+	// Журнал ключа отдаёт те же сведения, а время — текущее (UTC из базы).
+	logs, err := svc.HistoryForKey(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logs) != 1 || logs[0].GuestName == nil || *logs[0].GuestName != "Иван Петров" ||
+		logs[0].GuestPhone == nil || *logs[0].GuestPhone != "+7 999 123-45-67" {
+		t.Fatalf("в журнале нет данных гостя: %+v", logs)
+	}
+	if age := time.Since(logs[0].Timestamp.UTC()); age < 0 || age > time.Minute {
+		t.Fatalf("время события не соответствует текущему: %v (лаг %v)", logs[0].Timestamp, age)
 	}
 }
 

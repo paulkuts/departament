@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // scanTest поднимает публичные ручки ключа на боевых миграциях: GET по QR-ссылке
@@ -65,6 +66,7 @@ func scanTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 		}
 	})
 	w.RegisterRoutes(private)
+	NewKeyHandler(keys).RegisterRoutes(private)
 	return db, r
 }
 
@@ -319,5 +321,46 @@ func TestPublicLinkRenew(t *testing.T) {
 	}
 	if view := scanRequest(r, "GET", "/api/public/keys/"+out["public_id"].(string), scanCall{}); view.Code != 200 {
 		t.Fatalf("новая ссылка не работает: %d %s", view.Code, view.Body.String())
+	}
+}
+
+// Журнал ключа: у события гостя видны ФИО и телефон, время приходит с зоной (UTC),
+// чтобы телефон показал своё местное время.
+func TestKeyHistoryShowsGuestAndTimeZone(t *testing.T) {
+	_, r := scanTest(t)
+
+	scanRequest(r, "POST", "/api/public/keys/pub-1/scan",
+		scanCall{body: `{"name":"Иван Петров","phone":"+79991234567","intent":"take"}`})
+
+	res := scanRequest(r, "GET", "/api/keys/1/history", scanCall{user: "s"})
+	if res.Code != 200 {
+		t.Fatalf("журнал: %d %s", res.Code, res.Body.String())
+	}
+	var history []map[string]interface{}
+	if err := json.Unmarshal(res.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("ожидалось одно событие, получено %d", len(history))
+	}
+	entry := history[0]
+	if entry["guest_name"] != "Иван Петров" || entry["guest_phone"] != "+79991234567" {
+		t.Fatalf("в журнале нет данных гостя: %v", entry)
+	}
+	if entry["user_id"] != nil {
+		t.Fatalf("у гостя не должно быть аккаунта: %v", entry["user_id"])
+	}
+	stamp, ok := entry["timestamp"].(string)
+	if !ok || !strings.Contains(stamp, "T") || !strings.HasSuffix(stamp, "Z") {
+		t.Fatalf("время должно быть в UTC с зоной, получено %v", entry["timestamp"])
+	}
+	if _, err := time.Parse(time.RFC3339, stamp); err != nil {
+		t.Fatalf("время не разбирается как RFC3339: %v", err)
+	}
+
+	// Карточка ключа («сейчас у») тоже знает гостя.
+	holder := scanRequest(r, "GET", "/api/keys/1/holder", scanCall{user: "s"})
+	if holder.Code != 200 || !strings.Contains(holder.Body.String(), "Иван Петров") {
+		t.Fatalf("держатель-гость не отдаётся: %d %s", holder.Code, holder.Body.String())
 	}
 }

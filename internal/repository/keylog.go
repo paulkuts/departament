@@ -36,8 +36,9 @@ func (r *KeyLogRepo) Append(ctx context.Context, l *models.KeyLog) error {
 func (r *KeyLogRepo) HistoryForKey(ctx context.Context, keyID int64) ([]models.KeyLog, error) {
 	var logs []models.KeyLog
 	err := r.db.SelectContext(ctx, &logs,
-		`SELECT id, key_id, user_id, action_type, timestamp, comment
-		 FROM key_logs WHERE key_id = ? ORDER BY timestamp DESC`, keyID)
+		`SELECT id, key_id, user_id, action_type, timestamp, comment,
+		        guest_name, guest_phone, guest_token
+		 FROM key_logs WHERE key_id = ? ORDER BY id DESC`, keyID)
 	if err != nil {
 		return nil, fmt.Errorf("history for key: %w", err)
 	}
@@ -48,8 +49,9 @@ func (r *KeyLogRepo) HistoryForKey(ctx context.Context, keyID int64) ([]models.K
 func (r *KeyLogRepo) HistoryForUser(ctx context.Context, userID string) ([]models.KeyLog, error) {
 	var logs []models.KeyLog
 	err := r.db.SelectContext(ctx, &logs,
-		`SELECT id, key_id, user_id, action_type, timestamp, comment
-		 FROM key_logs WHERE user_id = ? ORDER BY timestamp DESC`, userID)
+		`SELECT id, key_id, user_id, action_type, timestamp, comment,
+		        guest_name, guest_phone, guest_token
+		 FROM key_logs WHERE user_id = ? ORDER BY id DESC`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("history for user: %w", err)
 	}
@@ -60,10 +62,11 @@ func (r *KeyLogRepo) HistoryForUser(ctx context.Context, userID string) ([]model
 func (r *KeyLogRepo) GetCurrentHolder(ctx context.Context, keyID int64) (*models.KeyLog, error) {
 	l := &models.KeyLog{}
 	err := r.db.GetContext(ctx, l,
-		`SELECT id, key_id, user_id, action_type, timestamp, comment 
+		`SELECT id, key_id, user_id, action_type, timestamp, comment,
+		        guest_name, guest_phone, guest_token 
 		 FROM key_logs 
 		 WHERE key_id = ? AND action_type = ? 
-		 ORDER BY timestamp DESC LIMIT 1`, keyID, models.ActionIssue)
+		 ORDER BY id DESC LIMIT 1`, keyID, models.ActionIssue)
 	if err == sql.ErrNoRows {
 		return nil, nil // ключ никто не держит
 	}
