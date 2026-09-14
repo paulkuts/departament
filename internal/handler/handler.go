@@ -112,8 +112,8 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		h.auth.RegisterRoutes(public)
 		public.POST("/auth/register", h.user.Register)
 		if h.workspace != nil {
-			h.workspace.RegisterPublicRoutes(public)
-			// Скан QR: сотрудник определяется по токену, гость — по метке браузера.
+			// Ключ по QR: сотрудник определяется по токену, гость — по метке браузера.
+			h.workspace.RegisterPublicRoutes(public, h.optionalAuth)
 			public.POST("/public/keys/:public_id/scan", h.optionalAuth, h.workspace.ScanKey)
 		}
 	}

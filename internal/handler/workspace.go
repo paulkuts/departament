@@ -29,8 +29,11 @@ func (h *Handler) SetWorkspace(w *WorkspaceHandler) { h.workspace = w }
 func NewWorkspaceHandler(db *sqlx.DB, keys KeyService) *WorkspaceHandler {
 	return &WorkspaceHandler{db: db, keys: keys}
 }
-func (h *WorkspaceHandler) RegisterPublicRoutes(r *gin.RouterGroup) {
-	r.GET("/public/keys/:public_id", h.publicKey)
+
+// RegisterPublicRoutes: soft — мягкая аутентификация (optionalAuth), чтобы
+// вошедший сотрудник видел, что ключ числится за ним, а гость оставался гостем.
+func (h *WorkspaceHandler) RegisterPublicRoutes(r *gin.RouterGroup, soft gin.HandlerFunc) {
+	r.GET("/public/keys/:public_id", soft, h.publicKey)
 	r.POST("/public/keys/:public_id/requests", h.requestKey)
 }
 func (h *WorkspaceHandler) RegisterRoutes(r *gin.RouterGroup) {

@@ -48,7 +48,14 @@ func scanTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 	r := gin.New()
 	keys := service.NewKeyService(repository.NewKeyRepo(db, zap.NewNop()), repository.NewKeyLogRepo(db, zap.NewNop()), db, zap.NewNop())
 	w := NewWorkspaceHandler(db, keys)
-	w.RegisterPublicRoutes(r.Group("/api"))
+	// Мягкая аутентификация: сотрудник — по заголовку X-User, гость — без него.
+	w.RegisterPublicRoutes(r.Group("/api"), func(c *gin.Context) {
+		if id := c.GetHeader("X-User"); id != "" {
+			c.Set(userIDKey, id)
+			c.Set(roleKey, "staff")
+		}
+		c.Next()
+	})
 	// scan-маршрут отдельно: в тесте JWT не проверяется, сотрудник — это заголовок.
 	r.POST("/api/public/keys/:public_id/scan", func(c *gin.Context) {
 		if id := c.GetHeader("X-User"); id != "" {
@@ -362,5 +369,28 @@ func TestKeyHistoryShowsGuestAndTimeZone(t *testing.T) {
 	holder := scanRequest(r, "GET", "/api/keys/1/holder", scanCall{user: "s"})
 	if holder.Code != 200 || !strings.Contains(holder.Body.String(), "Иван Петров") {
 		t.Fatalf("держатель-гость не отдаётся: %d %s", holder.Code, holder.Body.String())
+	}
+}
+
+// Сотрудник видит на экране ключа, что ключ у него: тогда кнопка предлагает
+// сдать, а не «забрать у другого» (раньше просмотр не знал о входе).
+func TestPublicKeyViewKnowsLoggedInHolder(t *testing.T) {
+	_, r := scanTest(t)
+
+	if res := scanRequest(r, "POST", "/api/public/keys/pub-1/scan", scanCall{user: "s"}); res.Code != 200 {
+		t.Fatalf("выдача сотруднику: %d %s", res.Code, res.Body.String())
+	}
+	view := scanBody(t, scanRequest(r, "GET", "/api/public/keys/pub-1", scanCall{user: "s"}))
+	if view["held_by_you"] != true || view["needs_guest_data"] != false {
+		t.Fatalf("сотрудник-держатель не узнан: %v", view)
+	}
+	if view["held_since"] == nil {
+		t.Fatalf("нет времени выдачи: %v", view)
+	}
+
+	// Другой сотрудник видит, что ключ занят, но не за ним.
+	other := scanBody(t, scanRequest(r, "GET", "/api/public/keys/pub-1", scanCall{user: "b"}))
+	if other["held_by_you"] != false || other["status"] != "issued" {
+		t.Fatalf("чужой сотрудник видит неверное состояние: %v", other)
 	}
 }

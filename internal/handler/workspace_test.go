@@ -40,7 +40,7 @@ func workspaceTest(t *testing.T) (*sqlx.DB, *gin.Engine) {
 	r := gin.New()
 	keys := service.NewKeyService(repository.NewKeyRepo(db, zap.NewNop()), repository.NewKeyLogRepo(db, zap.NewNop()), db, zap.NewNop())
 	w := NewWorkspaceHandler(db, keys)
-	w.RegisterPublicRoutes(r.Group("/api"))
+	w.RegisterPublicRoutes(r.Group("/api"), func(c *gin.Context) { c.Next() })
 	private := r.Group("/api", func(c *gin.Context) {
 		id := c.GetHeader("X-User")
 		if id == "" {

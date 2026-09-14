@@ -320,7 +320,10 @@ function scanView(id, state, draw, result) {
     try {
       const done = await request(`/public/keys/${encodeURIComponent(id)}/scan`, 'POST', payload || {});
       if (payload?.name) rememberGuest(payload.name, payload.phone);
-      draw(await request(`/public/keys/${encodeURIComponent(id)}`), done);
+      // Один этап: сразу показываем новое состояние ключа, итог — коротким сообщением.
+      draw(await request(`/public/keys/${encodeURIComponent(id)}`));
+      toast(done.action === 'return' ? 'Ключ сдан — спасибо'
+        : done.transferred ? 'Ключ переоформлен на вас' : 'Ключ записан за вами');
     } catch (error) { draw(state, {error:error.message}); }
   };
   const seen = guestMemory();
@@ -337,14 +340,6 @@ function scanView(id, state, draw, result) {
       el('p', {class:'scan-note', role:'alert'}, result.error),
       el('div', {class:'scan-actions'}, button('Продолжить', load, 'primary')));
   }
-  if (result) {
-    return el('div', {class:'scan-panel'}, el('p', {class:'scan-kicker'}, 'Готово'), title,
-      el('p', {class:'scan-note'}, result.action === 'return'
-        ? 'Спасибо — ключ снова свободен.'
-        : result.transferred ? 'Ключ переоформился на вас, прежний держатель снят автоматически.'
-        : 'Записан за вами. Чтобы сдать, отсканируйте QR ещё раз.'),
-      el('div', {class:'scan-actions'}, button('Понятно', load, 'primary')));
-  }
   if (state.status === 'lost') {
     return el('div', {class:'scan-panel'}, el('p', {class:'scan-kicker'}, 'Ключ'), title,
       status('Утерян', 'bad'),
@@ -352,16 +347,16 @@ function scanView(id, state, draw, result) {
   }
   if (state.held_by_you) {
     return el('div', {class:'scan-panel'}, el('p', {class:'scan-kicker'}, 'Ключ сейчас у вас'), title,
-      el('p', {class:'scan-note'}, `${hint}взят ${state.held_since ? date(state.held_since, true) : 'ранее'}.`),
+      el('p', {class:'scan-note'}, `${hint}ключ взят ${state.held_since ? date(state.held_since, true) : 'ранее'}. Сдаёте тем же способом: отсканируйте QR ещё раз или нажмите кнопку ниже.`),
       el('div', {class:'scan-actions'}, button('Сдать ключ', () => scan({intent:'return'}), 'primary')));
   }
   if (state.status === 'issued') {
     return el('div', {class:'scan-panel'}, el('p', {class:'scan-kicker'}, 'Ключ занят'), title,
-      el('p', {class:'scan-note'}, 'Ключ у другого сотрудника. Если берёте его себе — он переоформится на вас, запись прежнего держателя закроется.'),
+      el('p', {class:'scan-note'}, 'Ключ у другого сотрудника. Если берёте его себе — нажмите кнопку: ключ переоформится на вас, запись прежнего держателя закроется.'),
       el('div', {class:'scan-actions'}, me ? button('Забрать ключ', () => scan({intent:'take'}), 'primary') : guestForm('Забрать ключ')));
   }
   return el('div', {class:'scan-panel'}, el('p', {class:'scan-kicker'}, 'Ключ свободен'), title,
-    el('p', {class:'scan-note'}, `${hint}${me ? 'Ключ запишется за вами.' : 'Назовите себя — ключ запишется за вами.'} Чтобы сдать, отсканируйте QR ещё раз.`),
+    el('p', {class:'scan-note'}, `${hint}${me ? 'Нажмите кнопку — ключ запишется за вами.' : 'Назовите себя — ключ запишется за вами.'} Сдать можно так же: повторным сканированием QR или кнопкой на этом экране.`),
     el('div', {class:'scan-actions'}, me ? button('Взять ключ', () => scan({intent:'take'}), 'primary') : guestForm('Взять ключ')),
     me ? null : el('p', {class:'privacy'}, 'Сотрудник кафедры может ', link('войти', '#/login'), ' — тогда ключ запишется на аккаунт.'));
 }
