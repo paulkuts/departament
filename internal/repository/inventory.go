@@ -23,15 +23,15 @@ func NewInventoryRepo(db *sqlx.DB, log *zap.Logger) *InventoryRepo {
 
 // inventoryColumns — список колонок для SELECT (без JOIN)
 const inventoryColumns = `id, type, name, description, location, documentation, inventory_number,
-	responsible_id, status, unavailable_reason, last_verification_date, next_verification_date, created_at, updated_at`
+	responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date, created_at, updated_at`
 
 // Create создаёт единицу оборудования
 func (r *InventoryRepo) Create(ctx context.Context, e *models.Inventory) error {
 	res, err := r.db.NamedExecContext(ctx,
 		`INSERT INTO inventory 
-			(name, type, description, location, documentation, inventory_number, responsible_id, status, unavailable_reason, last_verification_date, next_verification_date)
+			(name, type, description, location, documentation, inventory_number, responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date)
 		 VALUES 
-			(:name, :type, :description, :location, :documentation, :inventory_number, :responsible_id, :status, :unavailable_reason, :last_verification_date, :next_verification_date)`, e)
+			(:name, :type, :description, :location, :documentation, :inventory_number, :responsible_id, :no_number_on_item, :not_in_registry, :status, :unavailable_reason, :last_verification_date, :next_verification_date)`, e)
 	if err != nil {
 		return fmt.Errorf("insert inventory: %w", err)
 	}
@@ -162,6 +162,8 @@ func (r *InventoryRepo) Update(ctx context.Context, e *models.Inventory) error {
 			documentation = :documentation,
 			inventory_number = :inventory_number,
 			responsible_id = :responsible_id,
+			no_number_on_item = :no_number_on_item,
+			not_in_registry = :not_in_registry,
 			status = :status,
 			unavailable_reason = :unavailable_reason,
 			last_verification_date = :last_verification_date,

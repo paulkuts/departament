@@ -32,6 +32,7 @@ func New(
 	keyRepo KeyRepo,
 	keyLogRepo KeyLogRepo,
 	equipmentRepo EquipmentRepo,
+	inventoryNumberRepo InventoryNumberRepo,
 	photo PhotoRepo,
 	eventRepo EventRepo,
 
@@ -45,7 +46,7 @@ func New(
 		Article:   NewArticleService(articleRepo, log),
 		User:      NewUserService(userRepo, cfg.Photo, hasher, log),
 		Key:       NewKeyService(keyRepo, keyLogRepo, db, log),
-		Equipment: NewEquipmentService(equipmentRepo, log),
+		Equipment: NewEquipmentService(equipmentRepo, inventoryNumberRepo, log),
 		Photo:     NewPhotoService(photo, equipmentRepo, cfg.Photo, log),
 		Event:     NewEventService(eventRepo, log),
 	}

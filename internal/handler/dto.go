@@ -176,6 +176,8 @@ type CreateInventoryRequest struct {
 	Documentation        *string `json:"documentation"`
 	InventoryNumber      *string `json:"inventory_number"`
 	ResponsibleID        *string `json:"responsible_id"`
+	NoNumberOnItem       *bool   `json:"no_number_on_item"`
+	NotInRegistry        *bool   `json:"not_in_registry"`
 	Status               *bool   `json:"status"`
 	UnavailableReason    *string `json:"unavailable_reason"`
 	LastVerificationDate *string `json:"last_verification_date"`
@@ -190,6 +192,8 @@ type UpdateInventoryRequest struct {
 	Documentation        *string `json:"documentation"`
 	InventoryNumber      *string `json:"inventory_number"`
 	ResponsibleID        *string `json:"responsible_id"`
+	NoNumberOnItem       *bool   `json:"no_number_on_item"`
+	NotInRegistry        *bool   `json:"not_in_registry"`
 	Status               *bool   `json:"status"`
 	UnavailableReason    *string `json:"unavailable_reason"`
 	LastVerificationDate *string `json:"last_verification_date"`
@@ -205,6 +209,8 @@ type InventoryResponse struct {
 	Documentation        *string `json:"documentation,omitempty"`
 	InventoryNumber      *string `json:"inventory_number,omitempty"`
 	ResponsibleID        *string `json:"responsible_id,omitempty"`
+	NoNumberOnItem       bool    `json:"no_number_on_item"`
+	NotInRegistry        bool    `json:"not_in_registry"`
 	Status               bool    `json:"status"`
 	UnavailableReason    *string `json:"unavailable_reason,omitempty"`
 	LastVerificationDate *string `json:"last_verification_date,omitempty"`
@@ -223,6 +229,8 @@ func ToInventoryResponse(e *models.Inventory) InventoryResponse {
 		Documentation:     e.Documentation,
 		InventoryNumber:   e.InventoryNumber,
 		ResponsibleID:     e.ResponsibleID,
+		NoNumberOnItem:    e.NoNumberOnItem,
+		NotInRegistry:     e.NotInRegistry,
 		Status:            e.Status,
 		UnavailableReason: e.UnavailableReason,
 		CreatedAt:         e.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -308,4 +316,41 @@ type EventResponse struct {
 	IsPublic        bool    `json:"is_public"`
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
+}
+
+// ========== Справочник инвентарных номеров (таблица кафедры) ==========
+
+// InventoryNumberResponse — строка справочника инвентарных номеров.
+type InventoryNumberResponse struct {
+	ID     int64  `json:"id"`
+	Number string `json:"number"`
+	Name   string `json:"name"`
+}
+
+func ToInventoryNumberResponses(items []models.InventoryNumber) []InventoryNumberResponse {
+	out := make([]InventoryNumberResponse, 0, len(items))
+	for _, it := range items {
+		out = append(out, InventoryNumberResponse{ID: it.ID, Number: it.Number, Name: it.Name})
+	}
+	return out
+}
+
+// InventoryNumberItem — одна строка загружаемой таблицы.
+type InventoryNumberItem struct {
+	Number string `json:"number" binding:"required,min=1"`
+	Name   string `json:"name"`
+}
+
+// ImportInventoryNumbersRequest — загрузка таблицы номеров.
+type ImportInventoryNumbersRequest struct {
+	Items   []InventoryNumberItem `json:"items" binding:"required,min=1,dive"`
+	Replace bool                  `json:"replace"`
+	Source  string                `json:"source"`
+}
+
+// ImportInventoryNumbersResponse — итог загрузки: добавлено, обновлено, всего в справочнике.
+type ImportInventoryNumbersResponse struct {
+	Added   int `json:"added"`
+	Updated int `json:"updated"`
+	Total   int `json:"total"`
 }

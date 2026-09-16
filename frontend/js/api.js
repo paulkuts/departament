@@ -181,6 +181,7 @@ class ApiClient {
         return this.request(`/inventory${qs ? '?' + qs : ''}`);
     }
     getInventoryById(id)         { return this.request(`/inventory/${id}`); }
+    getInventoryNumbers(search = '') { return this.request(`/inventory-numbers${search ? '?search=' + encodeURIComponent(search) : ''}`); }
     createInventory(data)        { return this.request('/inventory', { method: 'POST', body: JSON.stringify(data) }); }
     updateInventory(id, data)    { return this.request(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
     deleteInventory(id)          { return this.request(`/inventory/${id}`, { method: 'DELETE' }); }

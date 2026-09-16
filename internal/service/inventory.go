@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"errors"
 	"fmt"
 	"mitm-departament/internal/models"
@@ -20,13 +21,23 @@ type EquipmentRepo interface {
 	Delete(ctx context.Context, id int64) error
 }
 
+// InventoryNumberRepo — интерфейс справочника инвентарных номеров кафедры
+type InventoryNumberRepo interface {
+	Search(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error)
+	Count(ctx context.Context) (int64, error)
+	Exists(ctx context.Context, number string) (bool, error)
+	Import(ctx context.Context, items []models.InventoryNumber, replace bool) (int, int, error)
+	Delete(ctx context.Context, id int64) error
+}
+
 type EquipmentService struct {
-	repo EquipmentRepo
+	repo    EquipmentRepo
+	numbers InventoryNumberRepo
 	log  *zap.Logger
 }
 
-func NewEquipmentService(repo EquipmentRepo, log *zap.Logger) *EquipmentService {
-	return &EquipmentService{repo: repo, log: log}
+func NewEquipmentService(repo EquipmentRepo, numbers InventoryNumberRepo, log *zap.Logger) *EquipmentService {
+	return &EquipmentService{repo: repo, numbers: numbers, log: log}
 }
 
 // Create создаёт оборудование с проверкой уникальности инвентарного номера
@@ -154,4 +165,57 @@ func (s *EquipmentService) Delete(ctx context.Context, id int64) error {
 
 	s.log.Info("equipment deleted", zap.Int64("id", id))
 	return nil
+}
+// SearchNumbers — номера из таблицы кафедры для подсказки в форме объекта.
+func (s *EquipmentService) SearchNumbers(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error) {
+	if s.numbers == nil {
+		return []models.InventoryNumber{}, nil
+	}
+	return s.numbers.Search(ctx, query, limit)
+}
+
+// NotInRegistryMark — нужно ли пометить номер как отсутствующий в таблице.
+// Пустая таблица означает «сверять не с чем»: пометка не ставится.
+func (s *EquipmentService) NotInRegistryMark(ctx context.Context, number string) (bool, error) {
+	if strings.TrimSpace(number) == "" || s.numbers == nil {
+		return false, nil
+	}
+	total, err := s.numbers.Count(ctx)
+	if err != nil {
+		return false, err
+	}
+	if total == 0 {
+		return false, nil
+	}
+	found, err := s.numbers.Exists(ctx, number)
+	if err != nil {
+		return false, err
+	}
+	return !found, nil
+}
+
+// ImportNumbers — загрузка таблицы номеров: новые добавляются, известные обновляются.
+func (s *EquipmentService) ImportNumbers(ctx context.Context, items []models.InventoryNumber, replace bool) (added, updated, total int, err error) {
+	if s.numbers == nil {
+		return 0, 0, 0, errors.New("справочник инвентарных номеров недоступен")
+	}
+	added, updated, err = s.numbers.Import(ctx, items, replace)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	n, err := s.numbers.Count(ctx)
+	if err != nil {
+		return added, updated, 0, err
+	}
+	s.log.Info("справочник инвентарных номеров обновлён",
+		zap.Int("добавлено", added), zap.Int("обновлено", updated), zap.Int("всего", int(n)))
+	return added, updated, int(n), nil
+}
+
+// DeleteNumber — удаление номера из справочника.
+func (s *EquipmentService) DeleteNumber(ctx context.Context, id int64) error {
+	if s.numbers == nil {
+		return errors.New("справочник инвентарных номеров недоступен")
+	}
+	return s.numbers.Delete(ctx, id)
 }

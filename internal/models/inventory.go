@@ -13,6 +13,9 @@ type Inventory struct {
 	ResponsibleID        *string    `json:"responsible_id,omitempty" db:"responsible_id"`
 	Status               bool       `json:"status" db:"status"`
 	UnavailableReason    *string    `json:"unavailable_reason,omitempty" db:"unavailable_reason"` // ← новое
+
+	NoNumberOnItem      bool       `json:"no_number_on_item" db:"no_number_on_item"`   // на приборе номера нет
+	NotInRegistry       bool       `json:"not_in_registry" db:"not_in_registry"`       // номера нет в таблице кафедры
 	LastVerificationDate *time.Time `json:"last_verification_date,omitempty" db:"last_verification_date"`
 	NextVerificationDate *time.Time `json:"next_verification_date,omitempty" db:"next_verification_date"`
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`

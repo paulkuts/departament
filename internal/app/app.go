@@ -45,7 +45,7 @@ func Start(frontendFS embed.FS) {
 
 	logInstance.Info("initializing repository")
 	repo := repository.New(dbConn, logInstance)
-	svc := service.New(dbConn, repo.User, repo.Article, repo.Token, repo.User, repo.Key, repo.KeyLog, repo.Equipment, repo.Photo, repo.Event, cfg, logInstance)
+	svc := service.New(dbConn, repo.User, repo.Article, repo.Token, repo.User, repo.Key, repo.KeyLog, repo.Equipment, repo.InventoryNumber, repo.Photo, repo.Event, cfg, logInstance)
 	workspace := handler.NewWorkspaceHandler(dbConn, svc.Key)
 	handler := handler.New(svc.Auth, svc.Article, svc.User, svc.Key, svc.Equipment, svc.Photo, svc.Event, cfg, logInstance)
 
