@@ -1,5 +1,5 @@
-import {api} from './api.js';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js';
+import {api} from './api.js?v=13';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=13';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -142,7 +142,7 @@ async function inventoryList(page,q) {
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};
-  const [people,keys,numbers]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null),api.getInventoryNumbers().catch(()=>null)]);
+  const [people,keys,numbers]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null),(api.getInventoryNumbers?api.getInventoryNumbers():Promise.resolve(null)).catch(()=>null)]);
   const rooms=[...new Set((keys||[]).map(k=>k.key_number).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru',{numeric:true}));
   if(x.location&&!rooms.includes(x.location))rooms.unshift(x.location);
   const locationField=rooms.length?select('location','Расположение',x.location||'',[['','Выберите кабинет'],...rooms.map(v=>[v,v])],{required:true}):input('location','Расположение',x.location,{required:true});
