@@ -175,7 +175,7 @@ type CreateInventoryRequest struct {
 	Location             *string `json:"location" binding:"required,min=1"`
 	Documentation        *string `json:"documentation"`
 	InventoryNumber      *string `json:"inventory_number"`
-	ResponsibleID        *string `json:"responsible_id" binding:"required,min=1"`
+	ResponsibleID        *string `json:"responsible_id"`
 	Status               *bool   `json:"status"`
 	UnavailableReason    *string `json:"unavailable_reason"`
 	LastVerificationDate *string `json:"last_verification_date"`

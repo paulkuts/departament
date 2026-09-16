@@ -144,10 +144,10 @@ async function inventoryForm(item,page='equipment') {
   modal(item?'Редактировать объект':'Новый объект',form([
     input('name','Название',x.name,{required:true}),select('type','Категория',x.type,choose(types)),input('description','Описание и особенности',x.description,{type:'textarea'}),
     el('div',{class:'form-grid'},input('inventory_number','Инвентарный номер',x.inventory_number),input('location','Расположение',x.location,{required:true})),
-    select('responsible_id','Ответственный',x.responsible_id||'',[['','Выберите сотрудника'],...people.map(p=>[p.id,p.full_name])]),input('documentation','Документация (ссылка или текст)',x.documentation),
+    select('responsible_id','Ответственный',x.responsible_id||'',[['','Не назначен'],...people.map(p=>[p.id,p.full_name])]),input('documentation','Документация (ссылка или текст)',x.documentation),
     el('div',{class:'form-grid'},input('last_verification_date','Последняя поверка',x.last_verification_date?.slice(0,10),{type:'date'}),input('next_verification_date','Следующая поверка',x.next_verification_date?.slice(0,10),{type:'date'})),
     input('status','Доступно для использования',x.status,{type:'checkbox'}),input('unavailable_reason','Причина недоступности',x.unavailable_reason)
-  ],'Сохранить',async data=>{if(!data.responsible_id)throw Error('Выберите ответственного сотрудника');const payload={...nullable(data),status:data.status==='on',unavailable_reason:data.status==='on'?null:data.unavailable_reason||null};if(item)await api.updateInventory(x.id,payload);else await api.createInventory(payload);closeModal();toast('Объект сохранён');route();}));
+  ],'Сохранить',async data=>{const payload={...nullable(data),status:data.status==='on',unavailable_reason:data.status==='on'?null:data.unavailable_reason||null};if(item)await api.updateInventory(x.id,payload);else await api.createInventory(payload);closeModal();toast('Объект сохранён');route();}));
 }
 async function blobImage(url,alt,className='') {
   const res=await fetch(url,{headers:{Authorization:`Bearer ${api.accessToken}`},credentials:'same-origin'});
