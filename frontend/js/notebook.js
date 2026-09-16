@@ -44,7 +44,7 @@ function shell(page) {
   }
   rail.append(nav,el('div',{class:'rail-bottom'},el('strong',{},me ? roles[me.role] || me.role : 'Гостевой доступ'),me ? 'Личное рабочее пространство' : 'Внутренние реестры доступны после входа'));
   const user = me ? actions(el('span',{class:'avatar','aria-hidden':'true'},initials(me.full_name)),link(me.full_name,'#/profile'),el('small',{},roles[me.role]),button('Выйти', async()=>{await api.logout(); me=null; navTo('welcome');})) : actions(link('Войти','#/login','btn'),link('Создать аккаунт','#/register','btn primary'));
-  document.getElementById('topbar').replaceChildren(button('☰ Меню',()=>{rail.classList.toggle('open');},'mobile-menu'),el('div',{class:'crumb'},el('strong',{},'Рабочее пространство'),` / ${labels[page] || 'Карточка записи'}`),el('div',{class:'account'},user));
+  document.getElementById('topbar').replaceChildren(el('div',{class:'topbar-lead'},el('img',{class:'topbar-logo',src:'/img/logo.png',alt:'','aria-hidden':'true',width:32,height:32}),button('☰ Меню',()=>{rail.classList.toggle('open');},'mobile-menu')),el('div',{class:'crumb'},el('strong',{},'Рабочее пространство'),` / ${labels[page] || 'Карточка записи'}`),el('div',{class:'account'},user));
 }
 function queryRoute() {
   if (!location.hash && location.pathname.startsWith('/public/keys/')) return ['public-key',location.pathname.split('/').pop(),new URLSearchParams()];
