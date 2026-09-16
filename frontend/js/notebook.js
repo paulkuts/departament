@@ -21,7 +21,7 @@ const choose = (obj) => Object.entries(obj);
 const nullable = (data) => Object.fromEntries(Object.entries(data).map(([k,v]) => [k,typeof v === 'string' ? v.trim() || null : v]));
 const initials = name => (name || '').split(/\s+/).slice(0,2).map(x => x[0] || '').join('');
 const input = (name,label,value,opts={}) => field(name,label,value,opts);
-const select = (name,label,value,choices) => field(name,label,value,{choices});
+const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
 const remove = (title, name, fn) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); route();});
 function paint(node, token) { if (token === revision) content.replaceChildren(node); }
 function shell(page) {
@@ -140,10 +140,13 @@ async function inventoryList(page,q) {
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};
-  const people=await api.getActiveUsers();
+  const [people,keys]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null)]);
+  const rooms=[...new Set((keys||[]).map(k=>k.key_number).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru',{numeric:true}));
+  if(x.location&&!rooms.includes(x.location))rooms.unshift(x.location);
+  const locationField=rooms.length?select('location','Расположение',x.location||'',[['','Выберите кабинет'],...rooms.map(v=>[v,v])],{required:true}):input('location','Расположение',x.location,{required:true});
   modal(item?'Редактировать объект':'Новый объект',form([
     input('name','Название',x.name,{required:true}),select('type','Категория',x.type,choose(types)),input('description','Описание и особенности',x.description,{type:'textarea'}),
-    el('div',{class:'form-grid'},input('inventory_number','Инвентарный номер',x.inventory_number),input('location','Расположение',x.location,{required:true})),
+    el('div',{class:'form-grid'},input('inventory_number','Инвентарный номер',x.inventory_number),locationField),
     select('responsible_id','Ответственный',x.responsible_id||'',[['','Не назначен'],...people.map(p=>[p.id,p.full_name])]),input('documentation','Документация (ссылка или текст)',x.documentation),
     el('div',{class:'form-grid'},input('last_verification_date','Последняя поверка',x.last_verification_date?.slice(0,10),{type:'date'}),input('next_verification_date','Следующая поверка',x.next_verification_date?.slice(0,10),{type:'date'})),
     input('status','Доступно для использования',x.status,{type:'checkbox'}),input('unavailable_reason','Причина недоступности',x.unavailable_reason)
