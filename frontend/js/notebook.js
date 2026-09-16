@@ -34,7 +34,7 @@ function shell(page) {
     ...(admin() ? [['Управление',[['users','Коллеги и доступ','♧'],['requests','Заявки на ключи','↗']]]] : [])
   ] : [['',[['welcome','О пространстве','▦'],['login','Войти','→'],['register','Регистрация','＋']]]];
   rail.replaceChildren(link('','#/overview','brand'));
-  rail.firstChild.append(el('span',{class:'brand-mark','aria-hidden':'true'},'▣'),el('strong',{},'Контур кафедры'),el('small',{},'Лабораторный журнал'));
+  rail.firstChild.append(el('img',{class:'brand-mark',src:'/img/logo.png',alt:'','aria-hidden':'true',width:52,height:52}),el('strong',{},'Контур кафедры'),el('small',{},'Лабораторный журнал'));
   const nav = el('nav',{class:'nav','aria-label':'Разделы'});
   for (const [group,items] of groups) {
     const visible = items.filter(([key]) => admin() || !staffHiddenPages.includes(key));
