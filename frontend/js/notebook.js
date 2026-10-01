@@ -1,5 +1,5 @@
-import {api} from './api.js?v=13';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=13';
+import {api} from './api.js?v=14';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=14';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -131,10 +131,11 @@ async function overview() {
   root.append(el('div',{class:'overview-grid'},el('div',{},main,tasks),side));return root;
 }
 async function inventoryList(page,q) {
-  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),inventory:q.get('inventory'),type:q.get('type') || (page==='equipment'?'equipment':''),status:q.get('status')};
+  const activeType=q.get('type')==='all'?'':(q.get('type') || (page==='equipment'?'equipment':''));
+  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),inventory:q.get('inventory'),type:activeType,status:q.get('status')};
   const data=q.get('expired') ? await api.getExpiredVerification(20,params.offset) : await api.getInventory(params);
-  const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/inventory${value?'?type='+value:''}`,'aria-current':(q.get('type')||'')===value?'page':null},title)));
-  return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),page==='inventory'?tabs:null,sheet(
+  const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:value?`#/${page}?type=${value}`:`#/${page}${page==='equipment'?'?type=all':''}`,'aria-current':activeType===value?'page':null},title)));
+  return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Название',q.get('search')||'',{placeholder:'Найти объект…'}),input('inventory','Инвентарный номер',q.get('inventory')||''),select('type','Категория',params.type,[['','Все категории'],...choose(types)]),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
     table(['Объект','Категория','Инв. №','Расположение','Следующая поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
