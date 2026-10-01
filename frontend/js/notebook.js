@@ -1,5 +1,5 @@
-import {api} from './api.js?v=22';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=22';
+import {api} from './api.js?v=23';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=23';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -155,7 +155,7 @@ async function inventoryRegistry(q) {
   const items=list||[];
   const repeats=new Map();
   for(const x of items){const key=canonicalNumber(x.number);if(key)repeats.set(key,(repeats.get(key)||0)+1);}
-  const rows=items.map(x=>{const count=repeats.get(canonicalNumber(x.number))||1;return [x.name||'—',el('div',{},x.number||'—',count>1?el('small',{},`дубль · ${count} строки в описи`):null),x.unit||'—',numText(x.quantity),numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'quiet'),button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE'))))];});
+  const rows=items.map(x=>{const count=repeats.get(canonicalNumber(x.number))||1;return [x.name||'—',el('div',{},x.number||'—',count>1?el('small',{},`дубль · ${count} строки в описи`):null),x.unit||'—',numText(x.quantity),numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))];});
   const s=summary||{};
   const totals=el('div',{class:'summary-line'},
     el('div',{},el('strong',{},String(s.count ?? items.length)),el('span',{},search?'строк найдено':'строк в описи')),
@@ -208,7 +208,10 @@ function inventoryNumberForm(x) {
   const syncAmount=()=>{const p=numOrNull(priceField.querySelector('input').value),q=numOrNull(quantityField.querySelector('input').value);amountInput.value=(p!==null&&q!==null)?String(Math.round(p*q*100)/100):'';};
   for(const node of [priceField.querySelector('input'),quantityField.querySelector('input')])node.addEventListener('input',syncAmount);
   syncAmount();
-  modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),el('div',{class:'form-grid'},quantityField,priceField),amountField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,quantity:numOrNull(data.quantity),price:numOrNull(data.price)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();}));
+  const node=form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),el('div',{class:'form-grid'},quantityField,priceField),amountField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,quantity:numOrNull(data.quantity),price:numOrNull(data.price)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();});
+  // Удаление живёт только здесь: в таблице кнопки нет, случайно не удалить.
+  if(x)node.querySelector('.form-actions').prepend(button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE')),'navy'));
+  modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',node);
 }
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};
