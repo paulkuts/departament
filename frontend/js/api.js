@@ -225,6 +225,71 @@ class ApiClient {
         return data;
     }
 
+    // ─── Документы раздела «Инвентаризация» ───
+    getDocuments()     { return this.request('/inventory-documents'); }
+    deleteDocument(id) { return this.request(`/inventory-documents/${id}`, { method: 'DELETE' }); }
+    documentUrl(id)    { return `${this.baseURL}/inventory-documents/${id}/download`; }
+
+    async uploadDocument(file, _isRetry = false) {
+        const formData = new FormData();
+        formData.append('document', file);
+
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/inventory-documents`, {
+            method: 'POST',
+            credentials: 'include',
+            headers,
+            body: formData,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.uploadDocument(file, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+        return data;
+    }
+
+    // Скачивание идёт через fetch: файл отдаётся только с токеном в заголовке,
+    // поэтому обычная ссылка не подойдёт — сохраняем полученный blob.
+    async downloadDocument(id, filename, _isRetry = false) {
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/inventory-documents/${id}/download`, {
+            credentials: 'include',
+            headers,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.downloadDocument(id, filename, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `Ошибка ${res.status}`);
+        }
+
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'документ';
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
     // ─── Articles ───
     getArticles(params = {}) {
         const q = new URLSearchParams();

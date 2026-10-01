@@ -58,6 +58,7 @@ type Handler struct {
 	key       *KeyHandler
 	inventory *InventoryHandler
 	photo     *InventoryPhotoHandler
+	document  *InventoryDocumentHandler
 	event     *EventHandler
 	userSvc   UserService
 	log       *zap.Logger
@@ -67,7 +68,7 @@ type Handler struct {
 	frontendFSReady bool
 }
 
-func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, keySvc KeyService, InventorySvc InventoryService, photoSvc InventoryPhotoService, eventSvc EventService, cfg *config.Config, log *zap.Logger) *Handler {
+func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, keySvc KeyService, InventorySvc InventoryService, photoSvc InventoryPhotoService, documentSvc InventoryDocumentService, eventSvc EventService, cfg *config.Config, log *zap.Logger) *Handler {
 	rateLimiter := ratelimiter.NewRateLimiter(20, 10)
 	return &Handler{
 		auth:      NewAuthHandler(authSvc, cfg.Auth, log),
@@ -77,6 +78,7 @@ func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, ke
 		key:       NewKeyHandler(keySvc),
 		inventory: NewInventoryHandler(InventorySvc),
 		photo:     NewPhotoHandler(photoSvc, cfg.Photo),
+		document:  NewDocumentHandler(documentSvc, cfg.Document),
 		event:     NewEventHandler(eventSvc, userSvc),
 		userSvc:   userSvc,
 		log:       log,
@@ -132,6 +134,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		h.key.RegisterRoutes(protected)
 		h.inventory.RegisterRoutes(protected)
 		h.photo.RegisterRoutes(protected)
+		h.document.RegisterRoutes(protected)
 		h.user.RegisterRoutes(protected)
 		h.event.RegisterRoutes(protected)
 	}

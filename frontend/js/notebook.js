@@ -1,5 +1,5 @@
-import {api} from './api.js?v=18';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=18';
+import {api} from './api.js?v=19';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=19';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -25,6 +25,7 @@ const initials = name => (name || '').split(/\s+/).slice(0,2).map(x => x[0] || '
 const input = (name,label,value,opts={}) => field(name,label,value,opts);
 const numOrNull = value => {const t=String(value ?? '').trim().replace(',','.');return t === '' ? null : Number(t)};
 const numText = value => (value === null || value === undefined || value === '') ? '—' : Number(value).toLocaleString('ru-RU');
+const sizeText = bytes => {const b=Number(bytes)||0;if(b<1024)return `${b} Б`;if(b<1024*1024)return `${Math.round(b/1024)} КБ`;return `${(b/1024/1024).toFixed(1)} МБ`;};
 const hintText = x => [x.name, x.quantity === null || x.quantity === undefined ? (x.unit || '') : `${numText(x.quantity)}${x.unit ? ' ' + x.unit : ''}`].filter(Boolean).join(' · ');
 const canonicalNumber = value => {const n=String(value||'').toUpperCase().replace(/[^0-9A-ZА-ЯЁ/]/g,'');return n?(n.replace(/^0+/,'')||'0'):''};
 const inventoryNumberMarks = x => (x.no_number_on_item||x.not_in_registry)?el('div',{class:'actions'},x.no_number_on_item?status('номера на приборе нет','warn'):null,x.not_in_registry?status('нет в таблице кафедры','warn'):null):null;
@@ -152,7 +153,18 @@ async function inventoryRegistry(q) {
   const search=q.get('search')||'';
   const items=await request(`/inventory-numbers${search?'?search='+encodeURIComponent(search):''}`)||[];
   const rows=items.map(x=>[x.name||'—',x.number,x.unit||'—',numText(x.quantity),numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'quiet'),button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE'))))]);
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'})]),table(['Наименование','Инв. №','Ед. изм.','Кол-во','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`))));
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'})]),table(['Наименование','Инв. №','Ед. изм.','Кол-во','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`)),await inventoryDocuments()));
+}
+// Документы раздела — архив материального отдела: таблицы, ведомости, сканы.
+// Приложение их не разбирает: файлы просто хранятся, скачиваются и удаляются.
+async function inventoryDocuments() {
+  const docs=await api.getDocuments()||[];
+  const rows=docs.map(d=>[d.filename,sizeText(d.size_bytes),date(d.created_at,true),d.uploaded_by_name||'—',actions(button('Скачать',async()=>{try{await api.downloadDocument(d.id,d.filename);}catch(err){toast(err.message);}},'quiet'),button('Удалить',()=>remove('Удалить документ',d.filename,()=>api.deleteDocument(d.id))))]);
+  return sheet(sh('Документы раздела','Архивные документы материального отдела: таблицы, ведомости, сканы. Файлы хранятся как есть — приложение их не разбирает.'),body(table(['Файл','Размер','Загружен','Кто загрузил',''],rows,'Документов пока нет. Загрузите первый — он появится в этом списке.'),documentUpload()),el('div',{class:'sheet-foot'},el('span',{},`${docs.length} документов`)));
+}
+function documentUpload() {
+  const limit=50*1024*1024;
+  return el('label',{class:'field'},el('span',{},'Загрузить документ'),el('input',{type:'file','aria-label':'Загрузить документ',onchange:async e=>{const node=e.currentTarget,file=node.files[0];if(!file)return;if(file.size>limit){toast('Максимальный размер — 50 МБ');return;}node.disabled=true;try{await api.uploadDocument(file);toast('Документ загружен');route();}catch(err){toast(err.message);}finally{node.disabled=false;node.value='';}}}));
 }
 function inventoryNumberForm(x) {
   modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('quantity','Количество',x?.quantity ?? '',{type:'number',step:'any',min:0}),input('price','Цена за единицу, ₽',x?.price ?? '',{type:'number',step:'any',min:0}),input('amount','Сумма, ₽',x?.amount ?? '',{type:'number',step:'any',min:0})],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,quantity:numOrNull(data.quantity),price:numOrNull(data.price),amount:numOrNull(data.amount)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();}));

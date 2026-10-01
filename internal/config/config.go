@@ -39,6 +39,15 @@ type PhotoConfig struct {
 	MaxPhotos         int    `mapstructure:"max_photos" validate:"required"`
 }
 
+// DocumentConfig — архивные документы раздела «Инвентаризация».
+// Путь по умолчанию считается от каталога данных (см. NewConfig), поэтому
+// конфиги без блока documents продолжают работать.
+type DocumentConfig struct {
+	DocumentDir     string `mapstructure:"document_dir"`
+	MaxDocumentSize int    `mapstructure:"max_document_size"`
+	MaxDocuments    int    `mapstructure:"max_documents"`
+}
+
 // LoggerConfig настройки логгера (совместим с zap.Config)
 type LoggerConfig struct {
 	Level             string   `mapstructure:"level" validate:"oneof=debug info warn error dpanic panic fatal"`
@@ -61,11 +70,12 @@ type ServerConfig struct {
 
 // Config корневая структура конфигурации
 type Config struct {
-	App    AppConfig    `mapstructure:"app"`
-	Auth   AuthCfg      `mapstructure:"auth"`
-	DB     DBConfig     `mapstructure:"db"`
-	Photo  PhotoConfig  `mapstructure:"photo"`
-	Logger LoggerConfig `mapstructure:"logger"`
+	App      AppConfig      `mapstructure:"app"`
+	Auth     AuthCfg        `mapstructure:"auth"`
+	DB       DBConfig       `mapstructure:"db"`
+	Photo    PhotoConfig    `mapstructure:"photo"`
+	Document DocumentConfig `mapstructure:"documents"`
+	Logger   LoggerConfig   `mapstructure:"logger"`
 	Server ServerConfig `mapstructure:"server"`
 }
 
@@ -106,6 +116,11 @@ func NewConfig() (*Config, error) {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
 	}
 
+	// 4b. Каталог документов раздела «Инвентаризация»: по умолчанию рядом с БД
+	if cfg.Document.DocumentDir == "" {
+		cfg.Document.DocumentDir = filepath.Join(cfg.DB.DataDir, "documents")
+	}
+
 	// 5. Пост-обработка: если путь к БД не задан — используем дефолт
 	if cfg.DB.LocalPath == "" {
 		wd, err := os.Getwd()
@@ -132,6 +147,10 @@ func setDefaults(v *viper.Viper) {
 
 	// DB
 	// LocalPath намеренно не задаём здесь — вычислим после анмаршалинга
+
+	// Documents — архив раздела «Инвентаризация» (в конфиге можно переопределить)
+	v.SetDefault("documents.max_document_size", 52428800) // 50 МБ
+	v.SetDefault("documents.max_documents", 100)
 
 	// Logger (совместимо с zap)
 	v.SetDefault("logger.level", "info")
