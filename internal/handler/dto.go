@@ -421,3 +421,63 @@ type ImportInventoryNumbersResponse struct {
 	Updated int `json:"updated"`
 	Total   int `json:"total"`
 }
+
+// WriteoffResponse — отмеченная на списание позиция (вкладка «Списание»).
+// Данные позиции идут вместе с отметкой: таблица вкладки повторяет опись.
+type WriteoffResponse struct {
+	ID             int64    `json:"id"`
+	ItemID         int64    `json:"item_id"`
+	Quantity       float64  `json:"quantity"`
+	Reason         string   `json:"reason"`
+	Status         string   `json:"status"`
+	CreatedAt      string   `json:"created_at"`
+	Name           string   `json:"name"`
+	Number         string   `json:"number"`
+	Unit           string   `json:"unit"`
+	DocumentNumber string   `json:"document_number"`
+	ItemQuantity   *float64 `json:"item_quantity"`
+	Price          *float64 `json:"price"`
+}
+
+func ToWriteoffResponse(w *models.InventoryWriteoff) WriteoffResponse {
+	return WriteoffResponse{
+		ID:             w.ID,
+		ItemID:         w.ItemID,
+		Quantity:       w.Quantity,
+		Reason:         w.Reason,
+		Status:         w.Status,
+		CreatedAt:      w.CreatedAt,
+		Name:           w.Name,
+		Number:         w.Number,
+		Unit:           w.Unit,
+		DocumentNumber: w.DocumentNumber,
+		ItemQuantity:   w.ItemQuantity,
+		Price:          w.Price,
+	}
+}
+
+func ToWriteoffResponses(items []models.InventoryWriteoff) []WriteoffResponse {
+	out := make([]WriteoffResponse, 0, len(items))
+	for i := range items {
+		out = append(out, ToWriteoffResponse(&items[i]))
+	}
+	return out
+}
+
+// WriteoffRequest — отметка позиции на списание: сколько и по какой причине.
+// Количество обязательно: отметка без цифры не имеет смысла.
+type WriteoffRequest struct {
+	Quantity float64 `json:"quantity" binding:"gt=0"`
+	Reason   string  `json:"reason" binding:"max=300"`
+}
+
+// WriteoffResultResponse — итог применения списания.
+type WriteoffResultResponse struct {
+	Items    int64   `json:"items"`
+	Quantity float64 `json:"quantity"`
+	Amount   float64 `json:"amount"`
+}
+
+func ToWriteoffResultResponse(r models.WriteoffResult) WriteoffResultResponse {
+	return WriteoffResultResponse{Items: r.Items, Quantity: r.Quantity, Amount: r.Amount}
+}

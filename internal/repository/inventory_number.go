@@ -46,13 +46,15 @@ func (r *InventoryNumberRepo) Search(ctx context.Context, query, sort string, li
 // inventoryNumberFilter — условие поиска по описи: подстрока инвентарного
 // номера или наименования. Список и итог используют одно и то же условие,
 // иначе итог разошёлся бы с тем, что человек видит в таблице.
+// Полностью списанные позиции в опись не попадают: они ушли из списка, но
+// остались в базе — с историей списания и суммой.
 func inventoryNumberFilter(query string) (string, []interface{}) {
 	trimmed := strings.TrimSpace(query)
 	if trimmed == "" {
-		return "", nil
+		return "WHERE is_written_off = 0", nil
 	}
 	upper := strings.ToUpper(trimmed)
-	return `WHERE normalized LIKE ? OR UPPER(number) LIKE ? OR name_normalized LIKE ?`,
+	return `WHERE is_written_off = 0 AND (normalized LIKE ? OR UPPER(number) LIKE ? OR name_normalized LIKE ?)`,
 		[]interface{}{"%" + models.NormalizeInventoryNumber(trimmed) + "%", "%" + upper + "%", "%" + upper + "%"}
 }
 

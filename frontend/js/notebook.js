@@ -1,5 +1,5 @@
-import {api} from './api.js?v=30';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=30';
+import {api} from './api.js?v=32';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=32';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -153,6 +153,13 @@ function verification(value) {return value ? status(date(value),new Date(value)<
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
 async function inventoryRegistry(q) {
   const search=q.get('search')||'', sort=q.get('sort')||'';
+  const tab=q.get('tab')==='writeoff'?'writeoff':'';
+  // Отмеченные на списание позиции нужны обеим вкладкам: в описи — галочки,
+  // на «Списании» — сам список отмеченного.
+  const drafts=await api.getWriteoffs()||[];
+  const marked=new Set(drafts.map(d=>d.item_id));
+  const tabs=el('nav',{class:'register-tabs','aria-label':'Разделы инвентаризации'},[['','Инвентаризация'],['writeoff','Списание']].map(([value,title])=>el('a',{href:`#/inventory${value?'?tab='+value:''}`,'aria-current':tab===value?'page':null},title)));
+  if(tab==='writeoff') return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.'),tabs,await inventoryWriteoff(drafts,marked));
   const limitRaw=(q.get('limit')||'10')==='all'?'all':((q.get('limit')==='25')?'25':'10');
   const perPage=limitRaw==='all'?0:Number(limitRaw);
   const [list,summary]=await Promise.all([api.getInventoryNumbers(search,sort),api.getInventorySummary(search)]);
@@ -162,7 +169,7 @@ async function inventoryRegistry(q) {
   const page=perPage?Math.min(pages,Math.max(1,Math.floor((Number(q.get('offset'))||0)/perPage)+1)):1;
   const first=perPage?(page-1)*perPage:0;
   const shown=perPage?items.slice(first,first+perPage):items;
-  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
+  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),rashMark(x,marked),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
   const s=summary||{};
   const totals=el('div',{class:'summary-line'},
     el('div',{},el('strong',{},String(s.count ?? items.length)),el('span',{},search?'строк найдено':'строк в описи')),
@@ -189,7 +196,115 @@ async function inventoryRegistry(q) {
   const pagerBar=el('div',{class:'opis-pager'},perField,el('span',{class:'pager-info'},perPage
     ? (total?`Строки ${first+1}–${first+shown.length} из ${total} · страница ${page} из ${pages}`:'Записей нет')
     : `Показаны все записи: ${total}`),numbers);
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']]),hiddenField('limit',limitRaw)]),el('div',{class:'registry-total-bar'},toggle,box),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),tabs,sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']]),hiddenField('limit',limitRaw)]),el('div',{class:'registry-total-bar'},toggle,box),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽','Расх.',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
+}
+// ─── Списание: отметки в описи, отчёт по форме, применение ───
+// Причины списания — подсказки в поле: их можно выбрать из списка или вписать своё.
+const writeoffReasons=['Израсходовано на лабораторные работы','Израсходовано на практические занятия','Израсходовано на научно-исследовательскую работу'];
+// Реквизиты шапки отчёта администратор заполняет один раз: значения остаются в
+// браузере, при следующем списании их не нужно набирать заново.
+const writeoffSettingsKey='writeoffReport';
+const isoDay = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+function writeoffSettings() {
+  const today=new Date();
+  const base={department:'',person:'',from:isoDay(new Date(today.getFullYear(),today.getMonth(),1)),to:isoDay(today)};
+  try{return {...base,...JSON.parse(localStorage.getItem(writeoffSettingsKey)||'{}')};}catch{return base;}
+}
+function keepWriteoffSetting(patch) {
+  try{localStorage.setItem(writeoffSettingsKey,JSON.stringify({...writeoffSettings(),...patch}));}catch{}
+}
+// Галочка «Расх.»: отметка сразу уходит на сервер, поэтому опись и вкладка
+// «Списание» показывают одно и то же с любого устройства. refresh — перерисовать
+// страницу: на вкладке «Списание» снятая с учёта строка должна исчезнуть.
+function rashMark(item, marked, refresh=false) {
+  const box=el('input',{type:'checkbox',class:'rash-mark',checked:marked.has(item.id),'aria-label':'Отметить на списание','title':'Отметить на списание'});
+  box.addEventListener('change',async()=>{
+    const on=box.checked;
+    box.disabled=true;
+    try{
+      if(on){
+        const quantity=Number(item.quantity);
+        if(!quantity){box.checked=false;toast('У позиции не указано количество — списывать нечего');return;}
+        await api.saveWriteoff(item.id,quantity,'');
+        marked.add(item.id);
+        toast('Позиция отмечена — откройте вкладку «Списание»');
+      }else{
+        await api.deleteWriteoff(item.id);
+        marked.delete(item.id);
+        toast('Отметка снята');
+      }
+      if(refresh)route();
+    }catch(err){box.checked=!on;toast(err.message);}
+    finally{box.disabled=false;}
+  });
+  return box;
+}
+// Строка вкладки «Списание» — это отметка, а правится позиция описи: форма
+// правки у них общая, поэтому отметку переводим в запись описи.
+const writeoffItem = d => ({id:d.item_id,name:d.name,number:d.number,unit:d.unit,document_number:d.document_number,quantity:d.item_quantity,price:d.price});
+// Вкладка «Списание»: та же таблица, что в описи, но под каждой строкой —
+// количество к списанию, галочка «все» и причина. Поля видны всегда: ничего не
+// нужно разворачивать, и сразу заметно, что ещё не заполнено.
+async function inventoryWriteoff(drafts, marked) {
+  const list=drafts||[];
+  const settings=writeoffSettings();
+  const reasonList=el('datalist',{id:'writeoff-reasons'},writeoffReasons.map(r=>el('option',{value:r},r)));
+  const department=input('department','Структурное подразделение',settings.department,{placeholder:'кафедра …'});
+  const person=input('person','Ответственное лицо',settings.person,{placeholder:'Фамилия И. О.'});
+  const periodFrom=input('period_from','Период с',settings.from,{type:'date'});
+  const periodTo=input('period_to','Период по',settings.to,{type:'date'});
+  for(const [node,name] of [[department,'department'],[person,'person'],[periodFrom,'from'],[periodTo,'to']])
+    node.querySelector('input').addEventListener('change',event=>keepWriteoffSetting({[name]:event.currentTarget.value}));
+  const money=d=>d.price===null||d.price===undefined?null:Math.round(Number(d.price)*Number(d.quantity||0)*100)/100;
+  const totals=el('p',{class:'writeoff-total'});
+  const refreshTotals=()=>{
+    const units=list.reduce((sum,d)=>sum+Number(d.quantity||0),0);
+    const amount=list.reduce((sum,d)=>sum+(money(d)||0),0);
+    totals.textContent=list.length?`Отмечено позиций: ${list.length} · к списанию ${numText(units)} ед. · на сумму ${numText(Math.round(amount*100)/100)} ₽`:'Ничего не отмечено';
+  };
+  refreshTotals();
+  const rows=list.map(d=>{
+    const quantity=el('input',{type:'number',step:'any',min:'0',value:String(d.quantity ?? ''),class:'writeoff-qty','aria-label':`Количество к списанию: ${d.name||d.number}`});
+    const all=el('input',{type:'checkbox',class:'rash-mark','aria-label':'Списать всё количество','title':'Списать всё количество'});
+    const full=d.item_quantity===null||d.item_quantity===undefined?null:Number(d.item_quantity);
+    all.checked=full!==null&&Number(d.quantity)>=full;
+    const reason=el('input',{type:'text',list:'writeoff-reasons',value:d.reason||'',placeholder:'Причина списания — выберите или впишите',class:'writeoff-reason','aria-label':`Причина списания: ${d.name||d.number}`});
+    // Поля сохраняются сами: отдельной кнопки «Сохранить» на вкладке нет.
+    const save=async()=>{
+      const value=numOrNull(quantity.value);
+      if(value===null||value<=0){toast('Количество должно быть больше нуля');return;}
+      try{await api.saveWriteoff(d.item_id,value,reason.value);}
+      catch(err){toast(err.message);return;}
+      d.quantity=value;
+      d.reason=reason.value;
+      refreshTotals();
+    };
+    quantity.addEventListener('change',save);
+    reason.addEventListener('change',save);
+    all.addEventListener('change',()=>{if(all.checked&&full!==null)quantity.value=String(full);save();});
+    return {
+      cells:[el('span',{title:d.name||''},d.name||'—'),d.number||'—',d.unit||'—',numText(d.item_quantity),d.document_number||'—',numText(d.price),numText(d.price===null||d.price===undefined||d.item_quantity===null?null:Math.round(Number(d.price)*Number(d.item_quantity)*100)/100),rashMark({id:d.item_id,quantity:d.item_quantity},marked,true),actions(button('Изменить',()=>inventoryNumberForm(writeoffItem(d)),'navy'))],
+      under:el('div',{class:'writeoff-under'},reasonList,el('span',{class:'writeoff-label'},'Количество'),quantity,el('label',{class:'check writeoff-all'},all,'все'),el('span',{class:'writeoff-label'},'Причина списания'),reason)
+    };
+  });
+  const download=button('Скачать таблицу',async()=>{
+    if(!list.length){toast('Отметьте позиции в описи');return;}
+    await api.downloadWriteoffReport(writeoffSettings());
+    toast('Таблица сформирована — распечатайте и подпишите');
+  },'navy');
+  const apply=button('Применить списание',async()=>{
+    if(!list.length){toast('Отметьте позиции в описи');return;}
+    const units=list.reduce((sum,d)=>sum+Number(d.quantity||0),0);
+    confirmAction('Применить списание',`Отмечено позиций: ${list.length}, к списанию ${numText(units)} ед. Если таблица уже подписана — подтвердите: количество в описи уменьшится, полностью израсходованные строки уйдут из списка, итог пересчитается. Отменить это из интерфейса нельзя.`,async()=>{
+      const result=await api.applyWriteoffs();
+      toast(`Списание применено: позиций ${result.items} · единиц ${numText(result.quantity)}`);
+      route();
+    });
+  },'primary');
+  const bar=el('div',{class:'writeoff-bar'},el('div',{class:'writeoff-req'},department,person,periodFrom,periodTo),el('div',{class:'writeoff-actions'},download,apply));
+  return sheet(sh('Списание','Отмеченные позиции: количество и причина — под строкой, поля сохраняются сами.'),bar,
+    body(table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽','Расх.',''],rows,'Ничего не отмечено: поставьте галочку «Расх.» в описи — позиция появится здесь.','opis-table opis-writeoff'),totals),
+    el('div',{class:'sheet-foot'},el('span',{},`${list.length} позиций отмечено`)));
 }
 // Документы раздела — архив материального отдела: таблицы, ведомости, сканы.
 // Приложение их не разбирает: файлы просто хранятся, скачиваются и удаляются.

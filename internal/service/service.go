@@ -19,6 +19,7 @@ type Service struct {
 	User      *UserService
 	Key       *KeyService
 	Equipment *EquipmentService
+	Writeoff  *WriteoffService
 	Photo     *PhotoService
 	Document  *DocumentService
 	Event     *EventService
@@ -34,6 +35,7 @@ func New(
 	keyLogRepo KeyLogRepo,
 	equipmentRepo EquipmentRepo,
 	inventoryNumberRepo InventoryNumberRepo,
+	writeoffRepo WriteoffRepo,
 	photo PhotoRepo,
 	documentRepo DocumentRepo,
 	eventRepo EventRepo,
@@ -49,6 +51,7 @@ func New(
 		User:      NewUserService(userRepo, cfg.Photo, hasher, log),
 		Key:       NewKeyService(keyRepo, keyLogRepo, db, log),
 		Equipment: NewEquipmentService(equipmentRepo, inventoryNumberRepo, log),
+		Writeoff:  NewWriteoffService(writeoffRepo, log),
 		Photo:     NewPhotoService(photo, equipmentRepo, cfg.Photo, log),
 		Document:  NewDocumentService(documentRepo, cfg.Document, log),
 		Event:     NewEventService(eventRepo, log),

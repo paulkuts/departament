@@ -83,9 +83,17 @@ export const date = (value, time = false) => {
 export const status = (text, kind = '') => el('span', {class:`status ${kind}`}, text);
 export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '') {
   if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
+  // Строка — либо список ячеек, либо {cells, under}: under рисуется второй
+  // строкой на всю ширину (поля под позицией на вкладке «Списание»).
+  const lines = rows.map(row => {
+    const cells = Array.isArray(row) ? row : (row.cells || []);
+    const line = el('tr', {}, cells.map(cell => el('td', {}, cell ?? '—')));
+    if (Array.isArray(row) || !row.under) return line;
+    return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+  });
   return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
     el('table', {}, el('thead', {}, el('tr', {}, headers.map(h => el('th', {scope:'col'}, h)))),
-      el('tbody', {}, rows.map(row => el('tr', {}, row.map(cell => el('td', {}, cell ?? '—')))))));
+      el('tbody', {}, lines)));
 }
 export const actions = (...nodes) => el('div', {class:'actions'}, nodes);
 export const sheet = (...nodes) => el('section', {class:'sheet'}, nodes);

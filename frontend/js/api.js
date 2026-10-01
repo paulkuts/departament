@@ -1,5 +1,14 @@
 const API_BASE = '/api/v1';
 
+// Имя файла из заголовка Content-Disposition: сервер отдаёт его в filename*=UTF-8''…
+function fileNameFromHeader(res, fallback) {
+    const header = res.headers.get('Content-Disposition') || '';
+    const utf = /filename\*=UTF-8''([^;]+)/i.exec(header);
+    if (utf) { try { return decodeURIComponent(utf[1].replace(/\+/g, ' ')); } catch { /* ниже имя по умолчанию */ } }
+    const plain = /filename="([^"]+)"/i.exec(header);
+    return plain ? plain[1] : fallback;
+}
+
 class ApiClient {
     constructor(baseURL) {
         this.baseURL = baseURL;
@@ -256,6 +265,51 @@ class ApiClient {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
         return data;
+    }
+
+    // ─── Списание позиций описи ───
+    // Отметка живёт на сервере: вкладку «Списание» видно и с другого устройства.
+    getWriteoffs()         { return this.request('/inventory-writeoffs'); }
+    saveWriteoff(itemId, quantity, reason) { return this.request(`/inventory-writeoffs/${itemId}`, { method: 'PUT', body: JSON.stringify({ quantity, reason }) }); }
+    deleteWriteoff(itemId) { return this.request(`/inventory-writeoffs/${itemId}`, { method: 'DELETE' }); }
+    applyWriteoffs()       { return this.request('/inventory-writeoffs/apply', { method: 'POST' }); }
+
+    // Отчёт по форме материального отдела: файл отдаётся только с токеном,
+    // поэтому качаем его запросом и сохраняем полученный blob.
+    async downloadWriteoffReport(params = {}, _isRetry = false) {
+        const query = new URLSearchParams();
+        for (const key of ['department', 'person', 'from', 'to']) {
+            if (params[key]) query.append(key, params[key]);
+        }
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/inventory-writeoffs/report${query.toString() ? '?' + query : ''}`, {
+            credentials: 'include',
+            headers,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.downloadWriteoffReport(params, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `Ошибка ${res.status}`);
+        }
+
+        const name = fileNameFromHeader(res, 'Отчет о расходовании материальных запасов.xlsx');
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
 
     // Скачивание идёт через fetch: файл отдаётся только с токеном в заголовке,
