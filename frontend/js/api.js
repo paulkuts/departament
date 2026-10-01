@@ -181,7 +181,8 @@ class ApiClient {
         return this.request(`/inventory${qs ? '?' + qs : ''}`);
     }
     getInventoryById(id)         { return this.request(`/inventory/${id}`); }
-    getInventoryNumbers(search = '') { return this.request(`/inventory-numbers${search ? '?search=' + encodeURIComponent(search) : ''}`); }
+    getInventoryNumbers(search = '', sort = '') { const parts=[]; if(search)parts.push('search=' + encodeURIComponent(search)); if(sort)parts.push('sort=' + encodeURIComponent(sort)); return this.request(`/inventory-numbers${parts.length ? '?' + parts.join('&') : ''}`); }
+    getInventorySummary(search = '') { return this.request(`/inventory-numbers/summary${search ? '?search=' + encodeURIComponent(search) : ''}`); }
     createInventoryNumber(data)   { return this.request('/inventory-numbers', { method: 'POST', body: JSON.stringify(data) }); }
     updateInventoryNumber(id, data) { return this.request(`/inventory-numbers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
     lookupInventoryNumber(number) { return this.request(`/inventory-numbers/lookup?number=${encodeURIComponent(number)}`); }

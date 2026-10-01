@@ -22,6 +22,15 @@ type InventoryNumber struct {
 	CreatedAt      string   `json:"created_at" db:"created_at"`
 }
 
+// InventorySummary — итог по описи: сколько строк, сколько всего единиц и на
+// какую сумму. Считается сервером по тому же поиску, что и список, поэтому
+// после правки строки итог пересчитывается сам.
+type InventorySummary struct {
+	Count    int64   `json:"count" db:"count"`
+	Quantity float64 `json:"quantity" db:"quantity"`
+	Amount   float64 `json:"amount" db:"amount"`
+}
+
 // NormalizeInventoryNumber приводит номер к сравнимому виду: верхний регистр,
 // без пробелов, дефисов, точек, подчёркиваний и знака «№».
 // Слэш сохраняется — в таблице есть номера вида «026/025».

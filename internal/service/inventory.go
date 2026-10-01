@@ -5,6 +5,7 @@ import (
 	"strings"
 	"errors"
 	"fmt"
+	"math"
 	"mitm-departament/internal/models"
 
 	"go.uber.org/zap"
@@ -23,7 +24,8 @@ type EquipmentRepo interface {
 
 // InventoryNumberRepo — интерфейс справочника инвентарных номеров кафедры
 type InventoryNumberRepo interface {
-	Search(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error)
+	Search(ctx context.Context, query, sort string, limit int) ([]models.InventoryNumber, error)
+	Summary(ctx context.Context, query string) (models.InventorySummary, error)
 	Count(ctx context.Context) (int64, error)
 	Exists(ctx context.Context, number string) (bool, error)
 	GetByNumber(ctx context.Context, number string) (*models.InventoryNumber, error)
@@ -169,12 +171,35 @@ func (s *EquipmentService) Delete(ctx context.Context, id int64) error {
 	s.log.Info("equipment deleted", zap.Int64("id", id))
 	return nil
 }
-// SearchNumbers — номера из таблицы кафедры для подсказки в форме объекта.
-func (s *EquipmentService) SearchNumbers(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error) {
+// SearchNumbers — строки описи: список на странице инвентаризации и подсказки
+// в форме объекта. sort задаёт порядок вывода (пустой — как в документах).
+func (s *EquipmentService) SearchNumbers(ctx context.Context, query, sort string, limit int) ([]models.InventoryNumber, error) {
 	if s.numbers == nil {
 		return []models.InventoryNumber{}, nil
 	}
-	return s.numbers.Search(ctx, query, limit)
+	return s.numbers.Search(ctx, query, sort, limit)
+}
+
+// SummaryNumbers — итог по описи для блока сверху страницы: сколько строк,
+// сколько единиц и на какую сумму. Считается по тому же поиску, что и список.
+func (s *EquipmentService) SummaryNumbers(ctx context.Context, query string) (models.InventorySummary, error) {
+	if s.numbers == nil {
+		return models.InventorySummary{}, errors.New("инвентаризация недоступна")
+	}
+	return s.numbers.Summary(ctx, query)
+}
+
+// ComputeAmount — сумма строки считается, а не вводится руками: цена ×
+// количество. Нет цены или количества — суммы нет (считать нечего), поэтому
+// после правки количества сумма меняется сама. Округляем до копеек: иначе
+// двоичная дробь даёт хвост, а сумма сотен строк накапливает погрешность.
+func ComputeAmount(item *models.InventoryNumber) {
+	if item.Price != nil && item.Quantity != nil {
+		amount := math.Round(*item.Price**item.Quantity*100) / 100
+		item.Amount = &amount
+		return
+	}
+	item.Amount = nil
 }
 
 // NotInRegistryMark — нужно ли пометить номер как отсутствующий в таблице.
@@ -202,6 +227,9 @@ func (s *EquipmentService) ImportNumbers(ctx context.Context, items []models.Inv
 	if s.numbers == nil {
 		return 0, 0, 0, errors.New("справочник инвентарных номеров недоступен")
 	}
+	for i := range items {
+		ComputeAmount(&items[i])
+	}
 	added, updated, err = s.numbers.Import(ctx, items, replace)
 	if err != nil {
 		return 0, 0, 0, err
@@ -228,6 +256,7 @@ func (s *EquipmentService) CreateNumber(ctx context.Context, item *models.Invent
 	if s.numbers == nil {
 		return errors.New("инвентаризация недоступна")
 	}
+	ComputeAmount(item)
 	if err := s.numbers.Create(ctx, item); err != nil {
 		return err
 	}
@@ -241,6 +270,7 @@ func (s *EquipmentService) UpdateNumber(ctx context.Context, item *models.Invent
 	if s.numbers == nil {
 		return errors.New("инвентаризация недоступна")
 	}
+	ComputeAmount(item)
 	if err := s.numbers.Update(ctx, item); err != nil {
 		return err
 	}

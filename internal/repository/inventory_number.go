@@ -24,31 +24,67 @@ func NewInventoryNumberRepo(db *sqlx.DB, log *zap.Logger) *InventoryNumberRepo {
 
 const inventoryNumberColumns = `id, number, normalized, name, name_normalized, source, unit, quantity, price, amount, created_at`
 
-// Search отдаёт номера для подсказки в форме объекта.
-// Пустой запрос — первые limit записей (форма грузит справочник один раз).
-func (r *InventoryNumberRepo) Search(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error) {
+// Search отдаёт строки описи: страница инвентаризации и подсказки в форме
+// объекта. Пустой запрос — весь список (страница грузит опись целиком).
+// sort — порядок вывода: «duplicates» (рядом позиции с повторяющимся номером),
+// «name» (по алфавиту), «price» (сначала дорогие); пустой — как в документах.
+func (r *InventoryNumberRepo) Search(ctx context.Context, query, sort string, limit int) ([]models.InventoryNumber, error) {
 	if limit <= 0 || limit > 5000 {
 		limit = 5000
 	}
 	items := []models.InventoryNumber{}
-	trimmed := strings.TrimSpace(query)
-	if trimmed == "" {
-		if err := r.db.SelectContext(ctx, &items,
-			`SELECT `+inventoryNumberColumns+` FROM inventory_numbers
-			 ORDER BY LENGTH(number), number LIMIT ?`, limit); err != nil {
-			return nil, fmt.Errorf("list inventory numbers: %w", err)
-		}
-		return items, nil
-	}
-	normalized := models.NormalizeInventoryNumber(trimmed)
-	pattern := "%" + normalized + "%"
+	where, args := inventoryNumberFilter(query)
+	args = append(args, limit)
 	if err := r.db.SelectContext(ctx, &items,
-		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers
-		 WHERE normalized LIKE ? OR UPPER(number) LIKE ? OR name_normalized LIKE ?
-		 ORDER BY LENGTH(number), number LIMIT ?`, pattern, "%"+strings.ToUpper(trimmed)+"%", "%"+strings.ToUpper(trimmed)+"%", limit); err != nil {
+		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers `+where+
+			` ORDER BY `+inventoryNumberOrder(sort)+` LIMIT ?`, args...); err != nil {
 		return nil, fmt.Errorf("search inventory numbers: %w", err)
 	}
 	return items, nil
+}
+
+// inventoryNumberFilter — условие поиска по описи: подстрока инвентарного
+// номера или наименования. Список и итог используют одно и то же условие,
+// иначе итог разошёлся бы с тем, что человек видит в таблице.
+func inventoryNumberFilter(query string) (string, []interface{}) {
+	trimmed := strings.TrimSpace(query)
+	if trimmed == "" {
+		return "", nil
+	}
+	upper := strings.ToUpper(trimmed)
+	return `WHERE normalized LIKE ? OR UPPER(number) LIKE ? OR name_normalized LIKE ?`,
+		[]interface{}{"%" + models.NormalizeInventoryNumber(trimmed) + "%", "%" + upper + "%", "%" + upper + "%"}
+}
+
+// inventoryNumberOrder — порядок строк описи. «По дублям» поднимает наверх
+// позиции, которые встречаются в документах несколько раз: строки с одним
+// номером оказываются рядом.
+func inventoryNumberOrder(sort string) string {
+	switch sort {
+	case "duplicates":
+		return `(SELECT COUNT(*) FROM inventory_numbers d WHERE d.normalized = inventory_numbers.normalized) DESC, normalized, name_normalized, id`
+	case "name":
+		return `name_normalized, number, id`
+	case "price":
+		return `price IS NULL, price DESC, name_normalized, id`
+	default:
+		return `id`
+	}
+}
+
+// Summary — итог по описи: строк, единиц и рублей. Учитывает тот же поиск, что
+// и список, и складывает суммы строк (они уже округлены до копеек), поэтому
+// итог сходится с тем, что видно в колонке «Сумма». Строки без цены в денежный
+// итог не попадают — считать нечего.
+func (r *InventoryNumberRepo) Summary(ctx context.Context, query string) (models.InventorySummary, error) {
+	where, args := inventoryNumberFilter(query)
+	var out models.InventorySummary
+	if err := r.db.GetContext(ctx, &out,
+		`SELECT COUNT(*) AS count, COALESCE(SUM(quantity), 0) AS quantity, COALESCE(SUM(amount), 0) AS amount
+		 FROM inventory_numbers `+where, args...); err != nil {
+		return models.InventorySummary{}, fmt.Errorf("summarize inventory numbers: %w", err)
+	}
+	return out, nil
 }
 
 // Count — сколько номеров в справочнике (пустой справочник = сверять не с чем).
@@ -83,7 +119,8 @@ func NormalizeName(name string) string {
 
 // GetByNumber отдаёт строку описи по инвентарному номеру: по ней карточка
 // объекта показывает запись инвентаризации. Сравнение — в каноническом виде,
-// «025» и «25» считаются одним номером. Нет записи — (nil, nil).
+// «025» и «25» считаются одним номером. Номеров-дублей может быть несколько
+// (список из документов), поэтому берём первую строку. Нет записи — (nil, nil).
 func (r *InventoryNumberRepo) GetByNumber(ctx context.Context, number string) (*models.InventoryNumber, error) {
 	canonical := models.CanonicalInventoryNumber(number)
 	if canonical == "" {
@@ -91,7 +128,7 @@ func (r *InventoryNumberRepo) GetByNumber(ctx context.Context, number string) (*
 	}
 	var item models.InventoryNumber
 	err := r.db.GetContext(ctx, &item,
-		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers WHERE normalized = ?`, canonical)
+		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers WHERE normalized = ? ORDER BY id LIMIT 1`, canonical)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -102,7 +139,8 @@ func (r *InventoryNumberRepo) GetByNumber(ctx context.Context, number string) (*
 }
 
 // Create добавляет строку в опись материального отдела.
-// Повтор инвентарного номера отбивает уникальный индекс (normalized).
+// Номер-дубль разрешён: опись собирается из документов заявок, где одна и та же
+// позиция встречается в нескольких заявках.
 func (r *InventoryNumberRepo) Create(ctx context.Context, item *models.InventoryNumber) error {
 	normalized := models.CanonicalInventoryNumber(item.Number)
 	source := strings.TrimSpace(item.Source)
@@ -145,7 +183,10 @@ func (r *InventoryNumberRepo) Update(ctx context.Context, item *models.Inventory
 }
 
 // Import загружает таблицу номеров: новые строки добавляются, существующие
-// обновляются по нормализованному номеру. replace очищает справочник перед загрузкой.
+// обновляются по нормализованному номеру и наименованию (номер может
+// повторяться в разных заявках, поэтому одного номера для поиска строки мало).
+// Загружаются и данные описи: единица измерения, количество, цена, сумма.
+// replace очищает опись перед загрузкой.
 func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.InventoryNumber, replace bool) (added, updated int, err error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
@@ -168,18 +209,23 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 		}
 		number := strings.TrimSpace(it.Number)
 		name := strings.TrimSpace(it.Name)
+		nameNormalized := NormalizeName(name)
 		source := strings.TrimSpace(it.Source)
 		if source == "" {
 			source = "таблица кафедры"
 		}
 
 		var id int64
-		lookupErr := tx.GetContext(ctx, &id, `SELECT id FROM inventory_numbers WHERE normalized = ?`, normalized)
+		lookupErr := tx.GetContext(ctx, &id,
+			`SELECT id FROM inventory_numbers WHERE normalized = ? AND name_normalized = ? ORDER BY id LIMIT 1`,
+			normalized, nameNormalized)
 		switch {
 		case errors.Is(lookupErr, sql.ErrNoRows):
 			if _, err = tx.ExecContext(ctx,
-				`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source) VALUES (?, ?, ?, ?, ?)`,
-				number, normalized, name, NormalizeName(name), source); err != nil {
+				`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, unit, quantity, price, amount)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				number, normalized, name, nameNormalized, source,
+				strings.TrimSpace(it.Unit), it.Quantity, it.Price, it.Amount); err != nil {
 				return 0, 0, fmt.Errorf("insert inventory number %q: %w", it.Number, err)
 			}
 			added++
@@ -187,8 +233,10 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 			return 0, 0, fmt.Errorf("lookup inventory number %q: %w", it.Number, lookupErr)
 		default:
 			if _, err = tx.ExecContext(ctx,
-				`UPDATE inventory_numbers SET number = ?, name = ?, name_normalized = ? WHERE id = ?`,
-				number, name, NormalizeName(name), id); err != nil {
+				`UPDATE inventory_numbers SET number = ?, name = ?, name_normalized = ?, unit = ?, quantity = ?, price = ?, amount = ?
+				 WHERE id = ?`,
+				number, name, nameNormalized,
+				strings.TrimSpace(it.Unit), it.Quantity, it.Price, it.Amount, id); err != nil {
 				return 0, 0, fmt.Errorf("update inventory number %q: %w", it.Number, err)
 			}
 			updated++

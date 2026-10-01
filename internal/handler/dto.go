@@ -370,6 +370,19 @@ func ToInventoryNumberHints(items []models.InventoryNumber) []InventoryNumberHin
 	return out
 }
 
+// InventorySummaryResponse — итог по описи: блок сверху страницы инвентаризации.
+// Показывается администратору, сумму и количество считает сервер, поэтому итог
+// пересчитывается после каждой правки и учитывает текущий поиск.
+type InventorySummaryResponse struct {
+	Count    int64   `json:"count"`
+	Quantity float64 `json:"quantity"`
+	Amount   float64 `json:"amount"`
+}
+
+func ToInventorySummaryResponse(s models.InventorySummary) InventorySummaryResponse {
+	return InventorySummaryResponse{Count: s.Count, Quantity: s.Quantity, Amount: s.Amount}
+}
+
 // InventoryNumberRequest — новая строка инвентаризации или правка существующей.
 // Обязательны наименование и инвентарный номер; единица измерения, количество,
 // цена и сумма заполняются по мере надобности.
@@ -382,10 +395,14 @@ type InventoryNumberRequest struct {
 	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
 }
 
-// InventoryNumberItem — одна строка загружаемой таблицы.
+// InventoryNumberItem — одна строка загружаемой таблицы описи.
 type InventoryNumberItem struct {
-	Number string `json:"number" binding:"required,min=1"`
-	Name   string `json:"name"`
+	Number   string   `json:"number" binding:"required,min=1"`
+	Name     string   `json:"name"`
+	Unit     string   `json:"unit" binding:"max=50"`
+	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
+	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
+	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
 }
 
 // ImportInventoryNumbersRequest — загрузка таблицы номеров.

@@ -21,7 +21,8 @@ type InventoryService interface {
 	Delete(ctx context.Context, id int64) error
 
 	// инвентаризация — опись материального отдела (данные конфиденциальные)
-	SearchNumbers(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error)
+	SearchNumbers(ctx context.Context, query, sort string, limit int) ([]models.InventoryNumber, error)
+	SummaryNumbers(ctx context.Context, query string) (models.InventorySummary, error)
 	NotInRegistryMark(ctx context.Context, number string) (bool, error)
 	LookupNumber(ctx context.Context, number string) (*models.InventoryNumber, error)
 	CreateNumber(ctx context.Context, item *models.InventoryNumber) error
@@ -55,6 +56,7 @@ func (h *InventoryHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.GET("/inventory-numbers/hints", h.hints)
 	rg.GET("/inventory-numbers", requireRoles(adminKey), h.numbers)
 	rg.GET("/inventory-numbers/lookup", requireRoles(adminKey), h.lookupNumber)
+	rg.GET("/inventory-numbers/summary", requireRoles(adminKey), h.summaryNumbers)
 	rg.POST("/inventory-numbers", requireRoles(adminKey), h.createNumber)
 	rg.PUT("/inventory-numbers/:id", requireRoles(adminKey), h.updateNumber)
 	rg.POST("/inventory-numbers/import", requireRoles(adminKey), h.importNumbers)
@@ -298,18 +300,30 @@ func (h *InventoryHandler) resolveNumberFlags(ctx context.Context, number *strin
 	return noNumber, mark, nil
 }
 
-// numbers отдаёт справочник инвентарных номеров для подсказки в форме объекта.
+// numbers отдаёт строки описи материального отдела: страница инвентаризации.
+// ?sort= — порядок вывода (пустой — как в документах).
 func (h *InventoryHandler) numbers(c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "5000"))
 	if err != nil || limit <= 0 {
 		limit = 5000
 	}
-	items, err := h.svc.SearchNumbers(c.Request.Context(), c.Query("search"), limit)
+	items, err := h.svc.SearchNumbers(c.Request.Context(), c.Query("search"), c.Query("sort"), limit)
 	if err != nil {
 		handleError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, ToInventoryNumberResponses(items))
+}
+
+// summaryNumbers — итог по описи для блока сверху страницы (только админ):
+// строк, единиц и рублей. ?search= — тот же поиск, что и у списка.
+func (h *InventoryHandler) summaryNumbers(c *gin.Context) {
+	summary, err := h.svc.SummaryNumbers(c.Request.Context(), c.Query("search"))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToInventorySummaryResponse(summary))
 }
 
 // importNumbers загружает таблицу номеров кафедры (только админ).
@@ -335,7 +349,7 @@ func (h *InventoryHandler) hints(c *gin.Context) {
 	if err != nil || limit <= 0 {
 		limit = 5000
 	}
-	items, err := h.svc.SearchNumbers(ctx, c.Query("search"), limit)
+	items, err := h.svc.SearchNumbers(ctx, c.Query("search"), "", limit)
 	if err != nil {
 		handleError(c, err)
 		return
@@ -420,7 +434,10 @@ func (h *InventoryHandler) importNumbers(c *gin.Context) {
 	}
 	items := make([]models.InventoryNumber, 0, len(req.Items))
 	for _, it := range req.Items {
-		items = append(items, models.InventoryNumber{Number: it.Number, Name: it.Name, Source: req.Source})
+		items = append(items, models.InventoryNumber{
+			Number: it.Number, Name: it.Name, Source: req.Source,
+			Unit: it.Unit, Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
+		})
 	}
 	added, updated, total, err := h.svc.ImportNumbers(c.Request.Context(), items, req.Replace)
 	if err != nil {

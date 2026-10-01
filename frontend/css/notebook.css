@@ -22,3 +22,8 @@
 .drop-zone small{font-size:12px}
 .drop-zone .drop-input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
 @media(max-width:760px){.drop-zone{padding:20px 14px}}
+.registry-total-bar{padding:14px 22px 0}
+.registry-total-bar .check{padding:0}
+.registry-total .summary-line{border:1px solid var(--line);margin-top:10px;padding:14px 18px}
+.registry-total .summary-line strong{font-size:20px}
+@media(max-width:760px){.registry-total-bar{padding:12px 14px 0}.registry-total .summary-line{gap:16px}}
