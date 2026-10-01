@@ -1,5 +1,5 @@
-import {api} from './api.js?v=19';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=19';
+import {api} from './api.js?v=20';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=20';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -159,12 +159,31 @@ async function inventoryRegistry(q) {
 // Приложение их не разбирает: файлы просто хранятся, скачиваются и удаляются.
 async function inventoryDocuments() {
   const docs=await api.getDocuments()||[];
-  const rows=docs.map(d=>[d.filename,sizeText(d.size_bytes),date(d.created_at,true),d.uploaded_by_name||'—',actions(button('Скачать',async()=>{try{await api.downloadDocument(d.id,d.filename);}catch(err){toast(err.message);}},'quiet'),button('Удалить',()=>remove('Удалить документ',d.filename,()=>api.deleteDocument(d.id))))]);
+  const rows=docs.map(d=>{
+    const del=button('✕',()=>remove('Удалить документ',d.filename,()=>api.deleteDocument(d.id)),'icon');
+    del.title='Удалить документ';del.setAttribute('aria-label',`Удалить «${d.filename}»`);
+    return [d.filename,sizeText(d.size_bytes),date(d.created_at,true),d.uploaded_by_name||'—',actions(button('Скачать',async()=>{try{await api.downloadDocument(d.id,d.filename);}catch(err){toast(err.message);}},'rail'),del)];
+  });
   return sheet(sh('Документы раздела','Архивные документы материального отдела: таблицы, ведомости, сканы. Файлы хранятся как есть — приложение их не разбирает.'),body(table(['Файл','Размер','Загружен','Кто загрузил',''],rows,'Документов пока нет. Загрузите первый — он появится в этом списке.'),documentUpload()),el('div',{class:'sheet-foot'},el('span',{},`${docs.length} документов`)));
 }
 function documentUpload() {
   const limit=50*1024*1024;
-  return el('label',{class:'field'},el('span',{},'Загрузить документ'),el('input',{type:'file','aria-label':'Загрузить документ',onchange:async e=>{const node=e.currentTarget,file=node.files[0];if(!file)return;if(file.size>limit){toast('Максимальный размер — 50 МБ');return;}node.disabled=true;try{await api.uploadDocument(file);toast('Документ загружен');route();}catch(err){toast(err.message);}finally{node.disabled=false;node.value='';}}}));
+  const input=el('input',{type:'file',multiple:'',class:'drop-input','aria-label':'Выбрать документы',onchange:event=>{const node=event.currentTarget;send([...node.files]);node.value='';}});
+  const zone=el('label',{class:'drop-zone',ondragover:event=>{event.preventDefault();zone.classList.add('over');},ondragleave:()=>zone.classList.remove('over'),ondrop:event=>{event.preventDefault();zone.classList.remove('over');send([...event.dataTransfer.files]);}},
+    input,el('span',{class:'drop-mark','aria-hidden':'true'},'＋'),el('strong',{},'Перетащите документ сюда'),el('small',{},'или нажмите, чтобы выбрать файл · до 50 МБ, любой формат'));
+  async function send(files) {
+    const list=(files||[]).filter(f=>f&&f.size);
+    if(!list.length)return;
+    zone.classList.add('busy');
+    let loaded=0;
+    for(const file of list){
+      if(file.size>limit){toast(`«${file.name}» больше 50 МБ`);continue;}
+      try{await api.uploadDocument(file);loaded++;}catch(err){toast(`«${file.name}»: ${err.message}`);}
+    }
+    zone.classList.remove('busy');
+    if(loaded){toast(loaded===1?'Документ загружен':`Загружено документов: ${loaded}`);route();}
+  }
+  return zone;
 }
 function inventoryNumberForm(x) {
   modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('quantity','Количество',x?.quantity ?? '',{type:'number',step:'any',min:0}),input('price','Цена за единицу, ₽',x?.price ?? '',{type:'number',step:'any',min:0}),input('amount','Сумма, ₽',x?.amount ?? '',{type:'number',step:'any',min:0})],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,quantity:numOrNull(data.quantity),price:numOrNull(data.price),amount:numOrNull(data.amount)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();}));
