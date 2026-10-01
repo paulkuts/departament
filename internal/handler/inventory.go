@@ -5,6 +5,7 @@ import (
 	"mitm-departament/internal/models"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,9 +20,12 @@ type InventoryService interface {
 	Update(ctx context.Context, e *models.Inventory) error
 	Delete(ctx context.Context, id int64) error
 
-	// справочник инвентарных номеров кафедры (таблица учёта)
+	// инвентаризация — опись материального отдела (данные конфиденциальные)
 	SearchNumbers(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error)
 	NotInRegistryMark(ctx context.Context, number string) (bool, error)
+	LookupNumber(ctx context.Context, number string) (*models.InventoryNumber, error)
+	CreateNumber(ctx context.Context, item *models.InventoryNumber) error
+	UpdateNumber(ctx context.Context, item *models.InventoryNumber) error
 	ImportNumbers(ctx context.Context, items []models.InventoryNumber, replace bool) (int, int, int, error)
 	DeleteNumber(ctx context.Context, id int64) error
 }
@@ -44,8 +48,12 @@ func (h *InventoryHandler) RegisterRoutes(rg *gin.RouterGroup) {
 		Inventory.DELETE("/:id", requireRoles(adminKey), h.delete)
 	}
 
-	// Справочник инвентарных номеров кафедры (таблица учёта)
-	rg.GET("/inventory-numbers", h.numbers)
+	// Инвентаризация — опись материального отдела. Информация конфиденциальная:
+	// весь раздел доступен только администраторам.
+	rg.GET("/inventory-numbers", requireRoles(adminKey), h.numbers)
+	rg.GET("/inventory-numbers/lookup", requireRoles(adminKey), h.lookupNumber)
+	rg.POST("/inventory-numbers", requireRoles(adminKey), h.createNumber)
+	rg.PUT("/inventory-numbers/:id", requireRoles(adminKey), h.updateNumber)
 	rg.POST("/inventory-numbers/import", requireRoles(adminKey), h.importNumbers)
 	rg.DELETE("/inventory-numbers/:id", requireRoles(adminKey), h.deleteNumber)
 }
@@ -302,6 +310,75 @@ func (h *InventoryHandler) numbers(c *gin.Context) {
 }
 
 // importNumbers загружает таблицу номеров кафедры (только админ).
+// bindNumber разбирает тело запроса в строку описи и проверяет инвентарный номер.
+func (h *InventoryHandler) bindNumber(c *gin.Context) (*models.InventoryNumber, bool) {
+	var req InventoryNumberRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleValidationError(c, err)
+		return nil, false
+	}
+	item := &models.InventoryNumber{
+		Number:   strings.TrimSpace(req.Number),
+		Name:     strings.TrimSpace(req.Name),
+		Unit:     strings.TrimSpace(req.Unit),
+		Quantity: req.Quantity,
+		Price:    req.Price,
+		Amount:   req.Amount,
+	}
+	canonical := models.CanonicalInventoryNumber(item.Number)
+	if canonical == "" || strings.Trim(canonical, "/") == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "инвентарный номер не заполнен"})
+		return nil, false
+	}
+	return item, true
+}
+
+// lookupNumber — строка инвентаризации по инвентарному номеру объекта:
+// карточка объекта показывает администратору запись описи. Записи нет — 404.
+func (h *InventoryHandler) lookupNumber(c *gin.Context) {
+	item, err := h.svc.LookupNumber(c.Request.Context(), c.Query("number"))
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	if item == nil {
+		c.JSON(http.StatusNotFound, ErrorResponse{Error: "запись инвентаризации не найдена"})
+		return
+	}
+	c.JSON(http.StatusOK, ToInventoryNumberResponse(item))
+}
+
+// createNumber — новая строка инвентаризации.
+func (h *InventoryHandler) createNumber(c *gin.Context) {
+	item, ok := h.bindNumber(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.CreateNumber(c.Request.Context(), item); err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, ToInventoryNumberResponse(item))
+}
+
+// updateNumber — правка строки инвентаризации.
+func (h *InventoryHandler) updateNumber(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	item, ok := h.bindNumber(c)
+	if !ok {
+		return
+	}
+	item.ID = id
+	if err := h.svc.UpdateNumber(c.Request.Context(), item); err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToInventoryNumberResponse(item))
+}
+
 func (h *InventoryHandler) importNumbers(c *gin.Context) {
 	var req ImportInventoryNumbersRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

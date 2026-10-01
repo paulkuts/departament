@@ -2,15 +2,24 @@ package models
 
 import "strings"
 
-// InventoryNumber — строка справочника инвентарных номеров кафедры
-// (таблица учёта, из которой сверяется номер, введённый в карточке объекта).
+// InventoryNumber — строка инвентаризации: опись материального отдела.
+// По ней сверяется номер, введённый в карточке объекта (пометка «нет в таблице»),
+// а в карточке оборудования администратор видит саму запись описи.
+// Данные конфиденциальные — API раздела доступен только администраторам.
+// name_normalized — служебное поле поиска: наименование в верхнем регистре
+// (SQLite не поднимает регистр кириллицы, поэтому его приводит приложение).
 type InventoryNumber struct {
-	ID         int64  `json:"id" db:"id"`
-	Number     string `json:"number" db:"number"`
-	Normalized string `json:"-" db:"normalized"`
-	Name       string `json:"name" db:"name"`
-	Source     string `json:"source" db:"source"`
-	CreatedAt  string `json:"created_at" db:"created_at"`
+	ID             int64    `json:"id" db:"id"`
+	Number         string   `json:"number" db:"number"`
+	Normalized     string   `json:"-" db:"normalized"`
+	Name           string   `json:"name" db:"name"`
+	NameNormalized string   `json:"-" db:"name_normalized"`
+	Source         string   `json:"source" db:"source"`
+	Unit           string   `json:"unit" db:"unit"`
+	Quantity       *float64 `json:"quantity" db:"quantity"`
+	Price          *float64 `json:"price" db:"price"`
+	Amount         *float64 `json:"amount" db:"amount"`
+	CreatedAt      string   `json:"created_at" db:"created_at"`
 }
 
 // NormalizeInventoryNumber приводит номер к сравнимому виду: верхний регистр,

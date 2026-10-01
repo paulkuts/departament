@@ -320,19 +320,42 @@ type EventResponse struct {
 
 // ========== Справочник инвентарных номеров (таблица кафедры) ==========
 
-// InventoryNumberResponse — строка справочника инвентарных номеров.
+// InventoryNumberResponse — строка инвентаризации (опись материального отдела).
 type InventoryNumberResponse struct {
-	ID     int64  `json:"id"`
-	Number string `json:"number"`
-	Name   string `json:"name"`
+	ID       int64    `json:"id"`
+	Number   string   `json:"number"`
+	Name     string   `json:"name"`
+	Unit     string   `json:"unit"`
+	Quantity *float64 `json:"quantity"`
+	Price    *float64 `json:"price"`
+	Amount   *float64 `json:"amount"`
+}
+
+func ToInventoryNumberResponse(it *models.InventoryNumber) InventoryNumberResponse {
+	return InventoryNumberResponse{
+		ID: it.ID, Number: it.Number, Name: it.Name, Unit: it.Unit,
+		Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
+	}
 }
 
 func ToInventoryNumberResponses(items []models.InventoryNumber) []InventoryNumberResponse {
 	out := make([]InventoryNumberResponse, 0, len(items))
-	for _, it := range items {
-		out = append(out, InventoryNumberResponse{ID: it.ID, Number: it.Number, Name: it.Name})
+	for i := range items {
+		out = append(out, ToInventoryNumberResponse(&items[i]))
 	}
 	return out
+}
+
+// InventoryNumberRequest — новая строка инвентаризации или правка существующей.
+// Обязательны наименование и инвентарный номер; единица измерения, количество,
+// цена и сумма заполняются по мере надобности.
+type InventoryNumberRequest struct {
+	Number   string   `json:"number" binding:"required,min=1,max=100"`
+	Name     string   `json:"name" binding:"required,min=1,max=500"`
+	Unit     string   `json:"unit" binding:"max=50"`
+	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
+	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
+	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
 }
 
 // InventoryNumberItem — одна строка загружаемой таблицы.

@@ -26,6 +26,9 @@ type InventoryNumberRepo interface {
 	Search(ctx context.Context, query string, limit int) ([]models.InventoryNumber, error)
 	Count(ctx context.Context) (int64, error)
 	Exists(ctx context.Context, number string) (bool, error)
+	GetByNumber(ctx context.Context, number string) (*models.InventoryNumber, error)
+	Create(ctx context.Context, item *models.InventoryNumber) error
+	Update(ctx context.Context, item *models.InventoryNumber) error
 	Import(ctx context.Context, items []models.InventoryNumber, replace bool) (int, int, error)
 	Delete(ctx context.Context, id int64) error
 }
@@ -218,4 +221,38 @@ func (s *EquipmentService) DeleteNumber(ctx context.Context, id int64) error {
 		return errors.New("справочник инвентарных номеров недоступен")
 	}
 	return s.numbers.Delete(ctx, id)
+}
+
+// CreateNumber — новая строка инвентаризации (опись материального отдела).
+func (s *EquipmentService) CreateNumber(ctx context.Context, item *models.InventoryNumber) error {
+	if s.numbers == nil {
+		return errors.New("инвентаризация недоступна")
+	}
+	if err := s.numbers.Create(ctx, item); err != nil {
+		return err
+	}
+	s.log.Info("инвентаризация: запись добавлена",
+		zap.Int64("id", item.ID), zap.String("номер", item.Number))
+	return nil
+}
+
+// UpdateNumber — правка строки инвентаризации.
+func (s *EquipmentService) UpdateNumber(ctx context.Context, item *models.InventoryNumber) error {
+	if s.numbers == nil {
+		return errors.New("инвентаризация недоступна")
+	}
+	if err := s.numbers.Update(ctx, item); err != nil {
+		return err
+	}
+	s.log.Info("инвентаризация: запись изменена", zap.Int64("id", item.ID))
+	return nil
+}
+
+// LookupNumber — строка инвентаризации по инвентарному номеру объекта.
+// Нет номера или нет записи — (nil, nil): карточка показывает, что сверять нечего.
+func (s *EquipmentService) LookupNumber(ctx context.Context, number string) (*models.InventoryNumber, error) {
+	if s.numbers == nil || strings.TrimSpace(number) == "" {
+		return nil, nil
+	}
+	return s.numbers.GetByNumber(ctx, number)
 }

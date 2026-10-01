@@ -182,6 +182,9 @@ class ApiClient {
     }
     getInventoryById(id)         { return this.request(`/inventory/${id}`); }
     getInventoryNumbers(search = '') { return this.request(`/inventory-numbers${search ? '?search=' + encodeURIComponent(search) : ''}`); }
+    createInventoryNumber(data)   { return this.request('/inventory-numbers', { method: 'POST', body: JSON.stringify(data) }); }
+    updateInventoryNumber(id, data) { return this.request(`/inventory-numbers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
+    lookupInventoryNumber(number) { return this.request(`/inventory-numbers/lookup?number=${encodeURIComponent(number)}`); }
     createInventory(data)        { return this.request('/inventory', { method: 'POST', body: JSON.stringify(data) }); }
     updateInventory(id, data)    { return this.request(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
     deleteInventory(id)          { return this.request(`/inventory/${id}`, { method: 'DELETE' }); }

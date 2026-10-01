@@ -1,5 +1,5 @@
-import {api} from './api.js?v=15';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=15';
+import {api} from './api.js?v=16';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=16';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -23,6 +23,8 @@ const choose = (obj) => Object.entries(obj);
 const nullable = (data) => Object.fromEntries(Object.entries(data).map(([k,v]) => [k,typeof v === 'string' ? v.trim() || null : v]));
 const initials = name => (name || '').split(/\s+/).slice(0,2).map(x => x[0] || '').join('');
 const input = (name,label,value,opts={}) => field(name,label,value,opts);
+const numOrNull = value => {const t=String(value ?? '').trim().replace(',','.');return t === '' ? null : Number(t)};
+const numText = value => (value === null || value === undefined || value === '') ? '—' : Number(value).toLocaleString('ru-RU');
 const canonicalNumber = value => {const n=String(value||'').toUpperCase().replace(/[^0-9A-ZА-ЯЁ/]/g,'');return n?(n.replace(/^0+/,'')||'0'):''};
 const inventoryNumberMarks = x => (x.no_number_on_item||x.not_in_registry)?el('div',{class:'actions'},x.no_number_on_item?status('номера на приборе нет','warn'):null,x.not_in_registry?status('нет в таблице кафедры','warn'):null):null;
 const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
@@ -71,7 +73,7 @@ async function route() {
     if (['welcome','login','register'].includes(page)) node=authPage(page);
     else if (page==='overview') node=await overview();
     else if (page==='equipment') node=id ? await inventoryDetail(id,page) : await inventoryList(page,q);
-    else if (page==='inventory') node=admin() ? (id ? await inventoryDetail(id,page) : await inventoryList(page,q)) : forbidden();
+    else if (page==='inventory') node=admin() ? await inventoryRegistry(q) : forbidden();
     else if (page==='keys') node=id ? await keyDetail(id) : await keyList(q);
     else if (page==='articles') node=id ? await articleDetail(id) : await articleList(q);
     else if (page==='events') node=await events(q);
@@ -144,6 +146,16 @@ async function inventoryList(page,q) {
     table(['Объект','Категория','Инв. №','Расположение','Следующая поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
+// Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
+async function inventoryRegistry(q) {
+  const search=q.get('search')||'';
+  const items=await request(`/inventory-numbers${search?'?search='+encodeURIComponent(search):''}`)||[];
+  const rows=items.map(x=>[x.name||'—',x.number,x.unit||'—',numText(x.quantity),numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'quiet'),button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE'))))]);
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'})]),table(['Наименование','Инв. №','Ед. изм.','Кол-во','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`))));
+}
+function inventoryNumberForm(x) {
+  modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('quantity','Количество',x?.quantity ?? '',{type:'number',step:'any',min:0}),input('price','Цена за единицу, ₽',x?.price ?? '',{type:'number',step:'any',min:0}),input('amount','Сумма, ₽',x?.amount ?? '',{type:'number',step:'any',min:0})],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,quantity:numOrNull(data.quantity),price:numOrNull(data.price),amount:numOrNull(data.amount)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();}));
+}
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};
   const [people,keys,numbers]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null),(api.getInventoryNumbers?api.getInventoryNumbers():Promise.resolve(null)).catch(()=>null)]);
@@ -181,7 +193,9 @@ async function inventoryDetail(id,page) {
   const [photos,comments,loans]=await Promise.all([api.getPhotos(id),request(`/inventory/${id}/comments`),request(`/inventory/${id}/loans`)]);
   let responsible='Не назначен';if(x.responsible_id){try{responsible=(await api.getUser(x.responsible_id)).full_name;}catch{responsible='Недоступен';}}
   const activeLoan=loans.find(l=>!l.returned_at);
-  const root=el('div',{},link('← К реестру',`#/${page}`,'back-link'),head(x.name,`${types[x.type]||x.type} · ${x.inventory_number||'Без инвентарного номера'}`,admin()?button('Редактировать',()=>inventoryForm(x,page),'primary'):null),el('div',{class:'detail-grid'},sheet(sh('Карточка объекта'),body(details([['Расположение',x.location],['Инвентарный номер',x.inventory_number||'—'],['Ответственный',responsible],['Состояние',status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')],['Следующая поверка',verification(x.next_verification_date)],['Последняя поверка',date(x.last_verification_date)],['Документация',x.documentation?external(x.documentation,x.documentation):'—']]),inventoryNumberMarks(x)),body(el('h3',{},'Описание'),el('p',{class:'prose'},x.description||'Описание пока не добавлено.'))),sheet(sh('Временное пользование',activeLoan?'Объект сейчас выдан':'Нет активной выдачи'),body(activeLoan?details([['Получатель',activeLoan.borrower],['Дата выдачи',date(activeLoan.issued_at,true)],['Комментарий',activeLoan.comment]]):el('p',{},'Передайте оборудование сотруднику и сохраните запись о выдаче.'),admin()&&x.type==='equipment'?button(activeLoan?'Оформить возврат':'Выдать оборудование',async()=>{if(activeLoan){confirmAction('Оформить возврат',`Подтвердите возврат «${x.name}».`,async()=>{await request(`/loans/${activeLoan.id}/return`,'POST',{});route();});}else await loanForm(x);},'primary'):null))));
+  const record=admin()&&x.inventory_number ? await api.lookupInventoryNumber(x.inventory_number).catch(()=>null) : null;
+  const registryBlock=admin()?sheet(sh('Запись в инвентаризации','Опись материального отдела. Видят только администраторы.'),record?body(details([['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)],['Цена, ₽',numText(record.price)],['Сумма, ₽',numText(record.amount)]),el('div',{class:'actions'},button('Изменить запись',()=>inventoryNumberForm(record),'quiet'))):body(el('p',{},x.inventory_number?'В инвентаризации нет записи с этим инвентарным номером.':'У объекта не указан инвентарный номер — сверять не с чем.'))):null;
+  const root=el('div',{},link('← К реестру',`#/${page}`,'back-link'),head(x.name,`${types[x.type]||x.type} · ${x.inventory_number||'Без инвентарного номера'}`,admin()?button('Редактировать',()=>inventoryForm(x,page),'primary'):null),el('div',{class:'detail-grid'},sheet(sh('Карточка объекта'),body(details([['Расположение',x.location],['Инвентарный номер',x.inventory_number||'—'],['Ответственный',responsible],['Состояние',status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')],['Следующая поверка',verification(x.next_verification_date)],['Последняя поверка',date(x.last_verification_date)],['Документация',x.documentation?external(x.documentation,x.documentation):'—']]),inventoryNumberMarks(x)),body(el('h3',{},'Описание'),el('p',{class:'prose'},x.description||'Описание пока не добавлено.'))),sheet(sh('Временное пользование',activeLoan?'Объект сейчас выдан':'Нет активной выдачи'),body(activeLoan?details([['Получатель',activeLoan.borrower],['Дата выдачи',date(activeLoan.issued_at,true)],['Комментарий',activeLoan.comment]]):el('p',{},'Передайте оборудование сотруднику и сохраните запись о выдаче.'),admin()&&x.type==='equipment'?button(activeLoan?'Оформить возврат':'Выдать оборудование',async()=>{if(activeLoan){confirmAction('Оформить возврат',`Подтвердите возврат «${x.name}».`,async()=>{await request(`/loans/${activeLoan.id}/return`,'POST',{});route();});}else await loanForm(x);},'primary'):null),registryBlock));
   const gallery=el('div',{class:'photo-grid'});
   for(const p of photos||[])gallery.append(el('figure',{},await blobImage(api.photoUrl(p.id),p.filename||x.name),el('figcaption',{},p.filename),admin()?button('Удалить фото',()=>remove('Удалить фото',p.filename||x.name,()=>api.deletePhoto(p.id)),'quiet'):null));
   root.append(sheet(sh('Фотографии и QR'),body(gallery,admin()?upload('Добавить фотографию',file=>api.uploadPhoto(id,file)):null,button('Показать QR объекта',async()=>modal('QR объекта',el('div',{},await blobImage(api.qrCodeUrl(id),'QR объекта','qr'),el('p',{},'Карточка доступна после входа.')))))));

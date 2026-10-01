@@ -22,7 +22,7 @@ func NewInventoryNumberRepo(db *sqlx.DB, log *zap.Logger) *InventoryNumberRepo {
 	return &InventoryNumberRepo{db: db, log: log}
 }
 
-const inventoryNumberColumns = `id, number, normalized, name, source, created_at`
+const inventoryNumberColumns = `id, number, normalized, name, name_normalized, source, unit, quantity, price, amount, created_at`
 
 // Search отдаёт номера для подсказки в форме объекта.
 // Пустой запрос — первые limit записей (форма грузит справочник один раз).
@@ -44,8 +44,8 @@ func (r *InventoryNumberRepo) Search(ctx context.Context, query string, limit in
 	pattern := "%" + normalized + "%"
 	if err := r.db.SelectContext(ctx, &items,
 		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers
-		 WHERE normalized LIKE ? OR UPPER(number) LIKE ?
-		 ORDER BY LENGTH(number), number LIMIT ?`, pattern, "%"+strings.ToUpper(trimmed)+"%", limit); err != nil {
+		 WHERE normalized LIKE ? OR UPPER(number) LIKE ? OR name_normalized LIKE ?
+		 ORDER BY LENGTH(number), number LIMIT ?`, pattern, "%"+strings.ToUpper(trimmed)+"%", "%"+strings.ToUpper(trimmed)+"%", limit); err != nil {
 		return nil, fmt.Errorf("search inventory numbers: %w", err)
 	}
 	return items, nil
@@ -72,6 +72,76 @@ func (r *InventoryNumberRepo) Exists(ctx context.Context, number string) (bool, 
 		return false, fmt.Errorf("lookup inventory number: %w", err)
 	}
 	return n > 0, nil
+}
+
+// NormalizeName приводит наименование к виду для поиска: верхний регистр, без
+// лишних пробелов. Нужен свой (а не SQL UPPER), потому что SQLite не поднимает
+// регистр кириллицы.
+func NormalizeName(name string) string {
+	return strings.ToUpper(strings.Join(strings.Fields(name), " "))
+}
+
+// GetByNumber отдаёт строку описи по инвентарному номеру: по ней карточка
+// объекта показывает запись инвентаризации. Сравнение — в каноническом виде,
+// «025» и «25» считаются одним номером. Нет записи — (nil, nil).
+func (r *InventoryNumberRepo) GetByNumber(ctx context.Context, number string) (*models.InventoryNumber, error) {
+	canonical := models.CanonicalInventoryNumber(number)
+	if canonical == "" {
+		return nil, nil
+	}
+	var item models.InventoryNumber
+	err := r.db.GetContext(ctx, &item,
+		`SELECT `+inventoryNumberColumns+` FROM inventory_numbers WHERE normalized = ?`, canonical)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("lookup inventory number %q: %w", number, err)
+	}
+	return &item, nil
+}
+
+// Create добавляет строку в опись материального отдела.
+// Повтор инвентарного номера отбивает уникальный индекс (normalized).
+func (r *InventoryNumberRepo) Create(ctx context.Context, item *models.InventoryNumber) error {
+	normalized := models.CanonicalInventoryNumber(item.Number)
+	source := strings.TrimSpace(item.Source)
+	if source == "" {
+		source = "материальный отдел"
+	}
+	item.NameNormalized = NormalizeName(item.Name)
+	res, err := r.db.ExecContext(ctx,
+		`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, unit, quantity, price, amount)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		strings.TrimSpace(item.Number), normalized, strings.TrimSpace(item.Name), item.NameNormalized, source,
+		strings.TrimSpace(item.Unit), item.Quantity, item.Price, item.Amount)
+	if err != nil {
+		return fmt.Errorf("create inventory number %q: %w", item.Number, err)
+	}
+	if id, idErr := res.LastInsertId(); idErr == nil {
+		item.ID = id
+	}
+	item.Normalized, item.Source = normalized, source
+	return nil
+}
+
+// Update правит строку описи; инвентарный номер тоже может измениться.
+func (r *InventoryNumberRepo) Update(ctx context.Context, item *models.InventoryNumber) error {
+	normalized := models.CanonicalInventoryNumber(item.Number)
+	item.NameNormalized = NormalizeName(item.Name)
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE inventory_numbers SET number = ?, normalized = ?, name = ?, name_normalized = ?, unit = ?, quantity = ?, price = ?, amount = ?
+		 WHERE id = ?`,
+		strings.TrimSpace(item.Number), normalized, strings.TrimSpace(item.Name), item.NameNormalized,
+		strings.TrimSpace(item.Unit), item.Quantity, item.Price, item.Amount, item.ID)
+	if err != nil {
+		return fmt.Errorf("update inventory number %d: %w", item.ID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("inventory number not found")
+	}
+	item.Normalized = normalized
+	return nil
 }
 
 // Import загружает таблицу номеров: новые строки добавляются, существующие
@@ -108,8 +178,8 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 		switch {
 		case errors.Is(lookupErr, sql.ErrNoRows):
 			if _, err = tx.ExecContext(ctx,
-				`INSERT INTO inventory_numbers (number, normalized, name, source) VALUES (?, ?, ?, ?)`,
-				number, normalized, name, source); err != nil {
+				`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source) VALUES (?, ?, ?, ?, ?)`,
+				number, normalized, name, NormalizeName(name), source); err != nil {
 				return 0, 0, fmt.Errorf("insert inventory number %q: %w", it.Number, err)
 			}
 			added++
@@ -117,8 +187,8 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 			return 0, 0, fmt.Errorf("lookup inventory number %q: %w", it.Number, lookupErr)
 		default:
 			if _, err = tx.ExecContext(ctx,
-				`UPDATE inventory_numbers SET number = ?, name = ? WHERE id = ?`,
-				number, name, id); err != nil {
+				`UPDATE inventory_numbers SET number = ?, name = ?, name_normalized = ? WHERE id = ?`,
+				number, name, NormalizeName(name), id); err != nil {
 				return 0, 0, fmt.Errorf("update inventory number %q: %w", it.Number, err)
 			}
 			updated++
