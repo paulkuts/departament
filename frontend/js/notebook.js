@@ -1,12 +1,14 @@
-import {api} from './api.js?v=14';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=14';
+import {api} from './api.js?v=15';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=15';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
 const admin = () => me?.role === 'admin';
 const canEditReference = () => me?.role === 'admin' || me?.role === 'staff';
 // Разделы, скрытые из меню сотрудника до доработки: доступ по прямой ссылке остаётся.
-const staffHiddenPages = ['inventory','reference'];
+const staffHiddenPages = ['reference'];
+// Разделы только для администраторов: скрыты из меню и закрыты по прямой ссылке.
+const adminOnlyPages = ['inventory'];
 const roles = {admin:'Администратор',staff:'Сотрудник',teacher:'Преподаватель',student:'Студент'};
 const types = {equipment:'Оборудование',inventory:'Мебель и инвентарь',raw_material:'Химикаты и материалы',other:'Посуда и другое'};
 const keyStatuses = {available:'Свободен',issued:'Выдан',lost:'Утерян'};
@@ -39,7 +41,7 @@ function shell(page) {
   rail.firstChild.append(el('img',{class:'brand-mark',src:'/img/logo.png',alt:'','aria-hidden':'true',width:52,height:52}),el('strong',{},'Контур кафедры'),el('small',{},'Лабораторный журнал'));
   const nav = el('nav',{class:'nav','aria-label':'Разделы'});
   for (const [group,items] of groups) {
-    const visible = items.filter(([key]) => admin() || !staffHiddenPages.includes(key));
+    const visible = items.filter(([key]) => admin() || (!staffHiddenPages.includes(key) && !adminOnlyPages.includes(key)));
     if (!visible.length) continue;
     if (group) nav.append(el('p',{class:'nav-label'},group));
     for (const [key,title,icon] of visible) nav.append(el('a',{href:`#/${key}`,'aria-current':page===key?'page':null,onclick:()=>rail.classList.remove('open')},el('span',{class:'nav-icon','aria-hidden':'true'},icon),title));
@@ -68,7 +70,8 @@ async function route() {
     let node;
     if (['welcome','login','register'].includes(page)) node=authPage(page);
     else if (page==='overview') node=await overview();
-    else if (page==='equipment'||page==='inventory') node=id ? await inventoryDetail(id,page) : await inventoryList(page,q);
+    else if (page==='equipment') node=id ? await inventoryDetail(id,page) : await inventoryList(page,q);
+    else if (page==='inventory') node=admin() ? (id ? await inventoryDetail(id,page) : await inventoryList(page,q)) : forbidden();
     else if (page==='keys') node=id ? await keyDetail(id) : await keyList(q);
     else if (page==='articles') node=id ? await articleDetail(id) : await articleList(q);
     else if (page==='events') node=await events(q);
@@ -125,16 +128,16 @@ async function overview() {
   const count=expired?.paginated_metadata?.total || 0;
   if(count)root.append(el('div',{class:'notice'},el('div',{},el('strong',{},`${count} объектов с просроченной поверкой`),el('p',{},'Проверьте сроки и назначьте обслуживание.')),link('Посмотреть объекты','#/equipment?expired=1')));
   const items=inv?.inventory || [];
-  const main=sheet(sh('Имущество под наблюдением','Последние записи реестра',link('Все объекты','#/inventory','btn quiet')),table(['Объект','Инв. №','Расположение','Состояние'],items.map(x=>[link(x.name,`#/equipment/${x.id}`,'record-link'),el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,status(x.status?'Доступно':'Недоступно',x.status?'good':'warn')])),el('div',{class:'sheet-foot'},el('span',{},`${inv?.paginated_metadata?.total ?? '—'} объектов в реестре`),link('Проверить инвентаризацию','#/inventory')));
+  const main=sheet(sh('Имущество под наблюдением','Последние записи реестра',link('Все объекты','#/equipment','btn quiet')),table(['Объект','Инв. №','Расположение','Состояние'],items.map(x=>[link(x.name,`#/equipment/${x.id}`,'record-link'),el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,status(x.status?'Доступно':'Недоступно',x.status?'good':'warn')])),el('div',{class:'sheet-foot'},el('span',{},`${inv?.paginated_metadata?.total ?? '—'} объектов в реестре`),link('Проверить инвентаризацию','#/equipment')));
   const tasks=sheet(sh('Ближайшие задачи и события','План работы кафедры',link('Все','#/events','btn quiet')),ev?.events?.length ? el('ul',{class:'journal-list'},ev.events.map(x=>el('li',{},button(x.title,()=>eventView(x),'quiet'),el('small',{},`${date(x.start_time,true)} · ${x.location || 'Место не указано'}`)))):body(el('p',{},'Предстоящих событий пока нет.')));
   const side=el('div',{class:'overview-side'},sheet(sh('Публикации','Научная работа',link('Все','#/articles','btn quiet')),articles?.articles?.length?el('ul',{class:'journal-list'},articles.articles.map(x=>el('li',{},link(x.title,`#/articles/${x.id}`),el('small',{},articleStatuses[x.status]||x.status)))):body(el('p',{},'Публикации ещё не добавлены.'))),sheet(sh('Ключи','Текущий статус'),el('div',{class:'summary-line'},el('div',{},el('strong',{},keys?.filter(k=>k.status==='available').length ?? '—'),el('span',{},'свободно')),el('div',{},el('strong',{},keys?.filter(k=>k.status==='issued').length ?? '—'),el('span',{},'выдано'))),body(link('Открыть журнал ключей','#/keys'))));
   root.append(el('div',{class:'overview-grid'},el('div',{},main,tasks),side));return root;
 }
 async function inventoryList(page,q) {
-  const activeType=q.get('type')==='all'?'':(q.get('type') || (page==='equipment'?'equipment':''));
+  const activeType=q.get('type')||'';
   const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),inventory:q.get('inventory'),type:activeType,status:q.get('status')};
   const data=q.get('expired') ? await api.getExpiredVerification(20,params.offset) : await api.getInventory(params);
-  const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:value?`#/${page}?type=${value}`:`#/${page}${page==='equipment'?'?type=all':''}`,'aria-current':activeType===value?'page':null},title)));
+  const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Название',q.get('search')||'',{placeholder:'Найти объект…'}),input('inventory','Инвентарный номер',q.get('inventory')||''),select('type','Категория',params.type,[['','Все категории'],...choose(types)]),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
