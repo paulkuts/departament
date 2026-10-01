@@ -50,6 +50,9 @@ func (h *InventoryHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 	// Инвентаризация — опись материального отдела. Информация конфиденциальная:
 	// весь раздел доступен только администраторам.
+	// Подсказки доступны любому вошедшему: сотруднику нужен номер и что за позиция.
+	// Цен и сумм здесь нет — их отдают только администраторские маршруты.
+	rg.GET("/inventory-numbers/hints", h.hints)
 	rg.GET("/inventory-numbers", requireRoles(adminKey), h.numbers)
 	rg.GET("/inventory-numbers/lookup", requireRoles(adminKey), h.lookupNumber)
 	rg.POST("/inventory-numbers", requireRoles(adminKey), h.createNumber)
@@ -310,6 +313,36 @@ func (h *InventoryHandler) numbers(c *gin.Context) {
 }
 
 // importNumbers загружает таблицу номеров кафедры (только админ).
+// hints — подсказки по описи материального отдела: без цен и сумм.
+// ?number= — точная позиция по инвентарному номеру (карточка объекта),
+// иначе список для автодополнения (?search= — подстрока номера или наименования).
+func (h *InventoryHandler) hints(c *gin.Context) {
+	ctx := c.Request.Context()
+	if number := strings.TrimSpace(c.Query("number")); number != "" {
+		item, err := h.svc.LookupNumber(ctx, number)
+		if err != nil {
+			handleError(c, err)
+			return
+		}
+		if item == nil {
+			c.JSON(http.StatusNotFound, ErrorResponse{Error: "запись инвентаризации не найдена"})
+			return
+		}
+		c.JSON(http.StatusOK, ToInventoryNumberHint(item))
+		return
+	}
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "5000"))
+	if err != nil || limit <= 0 {
+		limit = 5000
+	}
+	items, err := h.svc.SearchNumbers(ctx, c.Query("search"), limit)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToInventoryNumberHints(items))
+}
+
 // bindNumber разбирает тело запроса в строку описи и проверяет инвентарный номер.
 func (h *InventoryHandler) bindNumber(c *gin.Context) (*models.InventoryNumber, bool) {
 	var req InventoryNumberRequest

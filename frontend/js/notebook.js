@@ -1,5 +1,5 @@
-import {api} from './api.js?v=16';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=16';
+import {api} from './api.js?v=17';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=17';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -25,6 +25,7 @@ const initials = name => (name || '').split(/\s+/).slice(0,2).map(x => x[0] || '
 const input = (name,label,value,opts={}) => field(name,label,value,opts);
 const numOrNull = value => {const t=String(value ?? '').trim().replace(',','.');return t === '' ? null : Number(t)};
 const numText = value => (value === null || value === undefined || value === '') ? '—' : Number(value).toLocaleString('ru-RU');
+const hintText = x => [x.name, x.quantity === null || x.quantity === undefined ? (x.unit || '') : `${numText(x.quantity)}${x.unit ? ' ' + x.unit : ''}`].filter(Boolean).join(' · ');
 const canonicalNumber = value => {const n=String(value||'').toUpperCase().replace(/[^0-9A-ZА-ЯЁ/]/g,'');return n?(n.replace(/^0+/,'')||'0'):''};
 const inventoryNumberMarks = x => (x.no_number_on_item||x.not_in_registry)?el('div',{class:'actions'},x.no_number_on_item?status('номера на приборе нет','warn'):null,x.not_in_registry?status('нет в таблице кафедры','warn'):null):null;
 const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
@@ -158,13 +159,13 @@ function inventoryNumberForm(x) {
 }
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};
-  const [people,keys,numbers]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null),(api.getInventoryNumbers?api.getInventoryNumbers():Promise.resolve(null)).catch(()=>null)]);
+  const [people,keys,numbers]=await Promise.all([api.getActiveUsers(),api.getKeys().catch(()=>null),(api.getInventoryHints?api.getInventoryHints():Promise.resolve(null)).catch(()=>null)]);
   const rooms=[...new Set((keys||[]).map(k=>k.key_number).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru',{numeric:true}));
   if(x.location&&!rooms.includes(x.location))rooms.unshift(x.location);
   const locationField=rooms.length?select('location','Расположение',x.location||'',[['','Выберите кабинет'],...rooms.map(v=>[v,v])],{required:true}):input('location','Расположение',x.location,{required:true});
   const registry=(numbers||[]).filter(n=>n.number);
   const known=new Set();for(const n of registry){const v=canonicalNumber(n.number);if(v)known.add(v);}
-  const suggestions=el('datalist',{id:'inventory-number-list'},registry.map(n=>el('option',{value:n.number},n.name||'')));
+  const suggestions=el('datalist',{id:'inventory-number-list'},registry.map(n=>el('option',{value:n.number},hintText(n))));
   const numberField=input('inventory_number','Инвентарный номер',x.inventory_number,{list:'inventory-number-list',autocomplete:'off'});
   const numberInput=numberField.querySelector('input');
   const flagField=input('not_in_registry','Нет в таблице',x.not_in_registry,{type:'checkbox'});
@@ -173,7 +174,7 @@ async function inventoryForm(item,page='equipment') {
   const syncFlag=()=>{if(flagTouched||!registry.length)return;const value=numberInput.value.trim();flagInput.checked=value!==''&&!known.has(canonicalNumber(value));};
   numberInput.addEventListener('input',syncFlag);
   flagInput.addEventListener('change',()=>{flagTouched=true;});
-  const hint=el('p',{class:'form-hint'},registry.length?`В таблице кафедры ${registry.length} номеров. Начните вводить — появятся подсказки.`:'Таблица номеров не загружена — сверка с таблицей не выполняется.');
+  const hint=el('p',{class:'form-hint'},registry.length?`В описи материального отдела ${registry.length} позиций. Начните вводить — появятся подсказки.`:'Опись не загружена — сверка с описью не выполняется.');
   modal(item?'Редактировать объект':'Новый объект',form([
     input('name','Название',x.name,{required:true}),select('type','Категория',x.type,choose(types)),input('description','Описание и особенности',x.description,{type:'textarea'}),
     el('div',{class:'form-grid'},numberField,locationField),suggestions,hint,
@@ -193,8 +194,9 @@ async function inventoryDetail(id,page) {
   const [photos,comments,loans]=await Promise.all([api.getPhotos(id),request(`/inventory/${id}/comments`),request(`/inventory/${id}/loans`)]);
   let responsible='Не назначен';if(x.responsible_id){try{responsible=(await api.getUser(x.responsible_id)).full_name;}catch{responsible='Недоступен';}}
   const activeLoan=loans.find(l=>!l.returned_at);
-  const record=admin()&&x.inventory_number ? await api.lookupInventoryNumber(x.inventory_number).catch(()=>null) : null;
-  const registryBlock=admin()?sheet(sh('Запись в инвентаризации','Опись материального отдела. Видят только администраторы.'),record?body(details([['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)],['Цена, ₽',numText(record.price)],['Сумма, ₽',numText(record.amount)]),el('div',{class:'actions'},button('Изменить запись',()=>inventoryNumberForm(record),'quiet'))):body(el('p',{},x.inventory_number?'В инвентаризации нет записи с этим инвентарным номером.':'У объекта не указан инвентарный номер — сверять не с чем.'))):null;
+  const record=x.inventory_number ? await (admin()?api.lookupInventoryNumber(x.inventory_number):api.lookupInventoryHint(x.inventory_number)).catch(()=>null) : null;
+  const registryFields=record?[['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)],...(admin()?[['Цена, ₽',numText(record.price)],['Сумма, ₽',numText(record.amount)]]:[])]:null;
+  const registryBlock=sheet(sh('Запись в инвентаризации',admin()?'Опись материального отдела. Видят только администраторы.':'Позиция из описи материального отдела.'),registryFields?body(details(registryFields),admin()?el('div',{class:'actions'},button('Изменить запись',()=>inventoryNumberForm(record),'quiet')):null):body(el('p',{},x.inventory_number?'В инвентаризации нет позиции с этим инвентарным номером.':'У объекта не указан инвентарный номер — сверять не с чем.')));
   const root=el('div',{},link('← К реестру',`#/${page}`,'back-link'),head(x.name,`${types[x.type]||x.type} · ${x.inventory_number||'Без инвентарного номера'}`,admin()?button('Редактировать',()=>inventoryForm(x,page),'primary'):null),el('div',{class:'detail-grid'},sheet(sh('Карточка объекта'),body(details([['Расположение',x.location],['Инвентарный номер',x.inventory_number||'—'],['Ответственный',responsible],['Состояние',status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')],['Следующая поверка',verification(x.next_verification_date)],['Последняя поверка',date(x.last_verification_date)],['Документация',x.documentation?external(x.documentation,x.documentation):'—']]),inventoryNumberMarks(x)),body(el('h3',{},'Описание'),el('p',{class:'prose'},x.description||'Описание пока не добавлено.'))),sheet(sh('Временное пользование',activeLoan?'Объект сейчас выдан':'Нет активной выдачи'),body(activeLoan?details([['Получатель',activeLoan.borrower],['Дата выдачи',date(activeLoan.issued_at,true)],['Комментарий',activeLoan.comment]]):el('p',{},'Передайте оборудование сотруднику и сохраните запись о выдаче.'),admin()&&x.type==='equipment'?button(activeLoan?'Оформить возврат':'Выдать оборудование',async()=>{if(activeLoan){confirmAction('Оформить возврат',`Подтвердите возврат «${x.name}».`,async()=>{await request(`/loans/${activeLoan.id}/return`,'POST',{});route();});}else await loanForm(x);},'primary'):null),registryBlock));
   const gallery=el('div',{class:'photo-grid'});
   for(const p of photos||[])gallery.append(el('figure',{},await blobImage(api.photoUrl(p.id),p.filename||x.name),el('figcaption',{},p.filename),admin()?button('Удалить фото',()=>remove('Удалить фото',p.filename||x.name,()=>api.deletePhoto(p.id)),'quiet'):null));

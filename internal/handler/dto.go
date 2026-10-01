@@ -346,6 +346,30 @@ func ToInventoryNumberResponses(items []models.InventoryNumber) []InventoryNumbe
 	return out
 }
 
+// InventoryNumberHintResponse — подсказка сотруднику: номер, наименование,
+// единица измерения и количество. Цена и сумма сюда не попадают.
+type InventoryNumberHintResponse struct {
+	ID       int64    `json:"id"`
+	Number   string   `json:"number"`
+	Name     string   `json:"name"`
+	Unit     string   `json:"unit"`
+	Quantity *float64 `json:"quantity"`
+}
+
+func ToInventoryNumberHint(it *models.InventoryNumber) InventoryNumberHintResponse {
+	return InventoryNumberHintResponse{
+		ID: it.ID, Number: it.Number, Name: it.Name, Unit: it.Unit, Quantity: it.Quantity,
+	}
+}
+
+func ToInventoryNumberHints(items []models.InventoryNumber) []InventoryNumberHintResponse {
+	out := make([]InventoryNumberHintResponse, 0, len(items))
+	for i := range items {
+		out = append(out, ToInventoryNumberHint(&items[i]))
+	}
+	return out
+}
+
 // InventoryNumberRequest — новая строка инвентаризации или правка существующей.
 // Обязательны наименование и инвентарный номер; единица измерения, количество,
 // цена и сумма заполняются по мере надобности.
