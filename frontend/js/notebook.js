@@ -1,5 +1,5 @@
-import {api} from './api.js?v=20';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=20';
+import {api} from './api.js?v=21';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=21';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -162,7 +162,7 @@ async function inventoryDocuments() {
   const rows=docs.map(d=>{
     const del=button('✕',()=>remove('Удалить документ',d.filename,()=>api.deleteDocument(d.id)),'icon');
     del.title='Удалить документ';del.setAttribute('aria-label',`Удалить «${d.filename}»`);
-    return [d.filename,sizeText(d.size_bytes),date(d.created_at,true),d.uploaded_by_name||'—',actions(button('Скачать',async()=>{try{await api.downloadDocument(d.id,d.filename);}catch(err){toast(err.message);}},'rail'),del)];
+    return [d.filename,sizeText(d.size_bytes),date(d.created_at,true),d.uploaded_by_name||'—',actions(button('Скачать',async()=>{try{await api.downloadDocument(d.id,d.filename);}catch(err){toast(err.message);}},'navy'),del)];
   });
   return sheet(sh('Документы раздела','Архивные документы материального отдела: таблицы, ведомости, сканы. Файлы хранятся как есть — приложение их не разбирает.'),body(table(['Файл','Размер','Загружен','Кто загрузил',''],rows,'Документов пока нет. Загрузите первый — он появится в этом списке.'),documentUpload()),el('div',{class:'sheet-foot'},el('span',{},`${docs.length} документов`)));
 }

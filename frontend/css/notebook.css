@@ -9,8 +9,9 @@
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
 .scan-panel{display:grid;gap:12px}.scan-kicker{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}.scan-result{margin:0;font-size:clamp(22px,6vw,30px);font-weight:700;letter-spacing:-.02em;line-height:1.15}.scan-note{margin:0;font-size:13px;max-width:60ch}.scan-actions{display:flex;flex-wrap:wrap;gap:10px}.scan-actions .btn{min-height:48px;padding:12px 20px;font-size:15px}.scan-panel .form{max-width:420px}@media(max-width:760px){.scan-actions .btn{width:100%}.scan-panel .form .form-actions .btn{width:100%}}
-/* Архивные документы раздела «Инвентаризация» (v=20): зона загрузки и тихие действия */
-.btn.rail{background:var(--nav);border-color:var(--nav);color:#fff}.btn.rail:hover{background:var(--nav-soft);border-color:var(--nav-soft)}
+/* Архивные документы раздела «Инвентаризация» (v=21): зона загрузки и тихие действия.
+   Класс кнопки — .navy, а не .rail: .rail занят боковой панелью (height:100vh). */
+.btn.navy{background:var(--nav);border-color:var(--nav);color:#fff;min-height:34px;padding:6px 12px;line-height:1.2}.btn.navy:hover{background:var(--nav-soft);border-color:var(--nav-soft)}
 .btn.icon{min-width:34px;padding:6px 8px;border-color:transparent;background:transparent;color:#8d9dae;font-size:15px;line-height:1}.btn.icon:hover{background:#fff0ef;border-color:#d8b4b2;color:#9e302d}
 .drop-zone{display:flex;flex-direction:column;align-items:center;gap:5px;margin-top:18px;padding:24px 18px;border:1px dashed var(--line-dark);background:#fbfdff;text-align:center;color:var(--muted);cursor:pointer}
 .drop-zone:hover{border-color:var(--blue);background:#f3f8fc}
