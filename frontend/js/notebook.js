@@ -1,5 +1,5 @@
-import {api} from './api.js?v=29';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=29';
+import {api} from './api.js?v=30';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=30';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -111,6 +111,8 @@ function authPage(mode) {
   });
   return el('div',{class:'auth-layout'},story,el('section',{class:'auth-form'},el('nav',{class:'auth-switch','aria-label':'Вход или регистрация'},el('a',{href:'#/login','aria-current':!register?'page':null},'Вход'),el('a',{href:'#/register','aria-current':register?'page':null},'Регистрация')),el('h2',{},register?'Присоединиться к кафедре':'Добро пожаловать'),authForm,el('p',{class:'auth-note'},'Чтобы запросить ключ без аккаунта, отсканируйте QR-код на ключе. Внутренние реестры гостям недоступны.')));
 }
+// Скрытое поле: переносит значение в отправляемую форму, не занимая места в панели.
+function hiddenField(name,value) { return el('input',{type:'hidden',name,value}); }
 function filterBar(page,q,fields) {
   const box=el('form',{class:'filters',onsubmit:e=>{e.preventDefault();const params=new URLSearchParams(new FormData(box));for(const [k,v] of [...params])if(!v)params.delete(k);navTo(`${page}?${params}`);}},fields,el('button',{class:'btn',type:'submit'},'Найти'),link('Сбросить',`#/${page}`,'btn quiet'));
   return box;
@@ -151,11 +153,16 @@ function verification(value) {return value ? status(date(value),new Date(value)<
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
 async function inventoryRegistry(q) {
   const search=q.get('search')||'', sort=q.get('sort')||'';
+  const limitRaw=(q.get('limit')||'10')==='all'?'all':((q.get('limit')==='25')?'25':'10');
+  const perPage=limitRaw==='all'?0:Number(limitRaw);
   const [list,summary]=await Promise.all([api.getInventoryNumbers(search,sort),api.getInventorySummary(search)]);
   const items=list||[];
-  const repeats=new Map();
-  for(const x of items){const key=canonicalNumber(x.number);if(key)repeats.set(key,(repeats.get(key)||0)+1);}
-  const rows=items.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
+  const total=items.length;
+  const pages=perPage?Math.max(1,Math.ceil(total/perPage)):1;
+  const page=perPage?Math.min(pages,Math.max(1,Math.floor((Number(q.get('offset'))||0)/perPage)+1)):1;
+  const first=perPage?(page-1)*perPage:0;
+  const shown=perPage?items.slice(first,first+perPage):items;
+  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
   const s=summary||{};
   const totals=el('div',{class:'summary-line'},
     el('div',{},el('strong',{},String(s.count ?? items.length)),el('span',{},search?'строк найдено':'строк в описи')),
@@ -166,7 +173,23 @@ async function inventoryRegistry(q) {
   box.style.display=showTotals?'':'none';
   const toggle=input('show_totals','Показывать итог',showTotals,{type:'checkbox'});
   toggle.querySelector('input').addEventListener('change',event=>{const on=event.currentTarget.checked;box.style.display=on?'':'none';try{localStorage.setItem('inventoryTotals',on?'on':'off');}catch{}});
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']])]),el('div',{class:'registry-total-bar'},toggle,box),table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`)),await inventoryDocuments()));
+  // Постраничный вывод: 10 записей по умолчанию, 25 или весь список целиком.
+  const goTo=offset=>{const next=new URLSearchParams(q);next.set('limit',limitRaw);offset>0?next.set('offset',String(offset)):next.delete('offset');navTo(`inventory?${next}`);};
+  const perField=select('limit','На странице',limitRaw,[['10','10 записей'],['25','25 записей'],['all','Все записи']]);
+  perField.querySelector('select').addEventListener('change',event=>{const next=new URLSearchParams(q);next.set('limit',event.currentTarget.value);next.delete('offset');navTo(`inventory?${next}`);});
+  const numbers=el('div',{class:'pager-numbers'});
+  if(perPage && pages>1){
+    const prev=button('←',()=>goTo(Math.max(0,(page-2)*perPage)),'quiet');prev.disabled=page<=1;numbers.append(prev);
+    const wanted=[...new Set([1,2,page-1,page,page+1,pages-1,pages].filter(n=>n>=1&&n<=pages))].sort((a,b)=>a-b);
+    let before=0;
+    for(const n of wanted){if(before && n-before>1)numbers.append(el('span',{class:'pager-gap'},'…'));
+      const b=button(String(n),()=>goTo((n-1)*perPage),n===page?'navy':'quiet');if(n===page)b.setAttribute('aria-current','page');numbers.append(b);before=n;}
+    const next=button('→',()=>goTo(page*perPage),'quiet');next.disabled=page>=pages;numbers.append(next);
+  }
+  const pagerBar=el('div',{class:'opis-pager'},perField,el('span',{class:'pager-info'},perPage
+    ? (total?`Строки ${first+1}–${first+shown.length} из ${total} · страница ${page} из ${pages}`:'Записей нет')
+    : `Показаны все записи: ${total}`),numbers);
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']]),hiddenField('limit',limitRaw)]),el('div',{class:'registry-total-bar'},toggle,box),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
 }
 // Документы раздела — архив материального отдела: таблицы, ведомости, сканы.
 // Приложение их не разбирает: файлы просто хранятся, скачиваются и удаляются.

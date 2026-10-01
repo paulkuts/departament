@@ -45,3 +45,10 @@
 @media(max-width:1100px){.opis-table th,.opis-table td{padding:10px 12px}.opis-table td{font-size:14px}.opis-table th{font-size:11px}}
 @media(max-width:1000px){.opis-table table{min-width:780px}}
 @media(max-width:760px){.opis-table table{min-width:900px}.opis-table th,.opis-table td{padding:10px 12px;font-size:14px}}
+.opis-pager{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 22px;border-top:1px solid var(--line);background:#fbfdfe}
+.opis-pager .field{min-width:150px}
+.opis-pager .pager-info{font-size:12px;color:var(--muted)}
+.pager-numbers{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.pager-numbers .btn{padding:4px 9px;min-width:34px;min-height:32px;font-size:13px}
+.pager-numbers .btn[aria-current=page]{background:var(--blue);border-color:var(--blue);color:#fff}
+.pager-gap{color:var(--muted);padding:0 2px}
