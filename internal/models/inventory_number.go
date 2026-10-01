@@ -15,6 +15,7 @@ type InventoryNumber struct {
 	Name           string   `json:"name" db:"name"`
 	NameNormalized string   `json:"-" db:"name_normalized"`
 	Source         string   `json:"source" db:"source"`
+	DocumentNumber string   `json:"document_number" db:"document_number"`
 	Unit           string   `json:"unit" db:"unit"`
 	Quantity       *float64 `json:"quantity" db:"quantity"`
 	Price          *float64 `json:"price" db:"price"`

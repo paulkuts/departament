@@ -322,10 +322,11 @@ type EventResponse struct {
 
 // InventoryNumberResponse — строка инвентаризации (опись материального отдела).
 type InventoryNumberResponse struct {
-	ID       int64    `json:"id"`
-	Number   string   `json:"number"`
-	Name     string   `json:"name"`
-	Unit     string   `json:"unit"`
+	ID             int64    `json:"id"`
+	Number         string   `json:"number"`
+	Name           string   `json:"name"`
+	DocumentNumber string   `json:"document_number"`
+	Unit           string   `json:"unit"`
 	Quantity *float64 `json:"quantity"`
 	Price    *float64 `json:"price"`
 	Amount   *float64 `json:"amount"`
@@ -333,8 +334,8 @@ type InventoryNumberResponse struct {
 
 func ToInventoryNumberResponse(it *models.InventoryNumber) InventoryNumberResponse {
 	return InventoryNumberResponse{
-		ID: it.ID, Number: it.Number, Name: it.Name, Unit: it.Unit,
-		Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
+		ID: it.ID, Number: it.Number, Name: it.Name, DocumentNumber: it.DocumentNumber,
+		Unit: it.Unit, Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
 	}
 }
 
@@ -387,9 +388,10 @@ func ToInventorySummaryResponse(s models.InventorySummary) InventorySummaryRespo
 // Обязательны наименование и инвентарный номер; единица измерения, количество,
 // цена и сумма заполняются по мере надобности.
 type InventoryNumberRequest struct {
-	Number   string   `json:"number" binding:"required,min=1,max=100"`
-	Name     string   `json:"name" binding:"required,min=1,max=500"`
-	Unit     string   `json:"unit" binding:"max=50"`
+	Number         string   `json:"number" binding:"required,min=1,max=100"`
+	Name           string   `json:"name" binding:"required,min=1,max=500"`
+	DocumentNumber string   `json:"document_number" binding:"max=50"`
+	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
 	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
 	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
@@ -397,9 +399,10 @@ type InventoryNumberRequest struct {
 
 // InventoryNumberItem — одна строка загружаемой таблицы описи.
 type InventoryNumberItem struct {
-	Number   string   `json:"number" binding:"required,min=1"`
-	Name     string   `json:"name"`
-	Unit     string   `json:"unit" binding:"max=50"`
+	Number         string   `json:"number" binding:"required,min=1"`
+	Name           string   `json:"name"`
+	DocumentNumber string   `json:"document_number" binding:"max=50"`
+	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
 	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
 	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`

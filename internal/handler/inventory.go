@@ -365,10 +365,11 @@ func (h *InventoryHandler) bindNumber(c *gin.Context) (*models.InventoryNumber, 
 		return nil, false
 	}
 	item := &models.InventoryNumber{
-		Number:   strings.TrimSpace(req.Number),
-		Name:     strings.TrimSpace(req.Name),
-		Unit:     strings.TrimSpace(req.Unit),
-		Quantity: req.Quantity,
+		Number:         strings.TrimSpace(req.Number),
+		Name:           strings.TrimSpace(req.Name),
+		DocumentNumber: strings.TrimSpace(req.DocumentNumber),
+		Unit:           strings.TrimSpace(req.Unit),
+		Quantity:       req.Quantity,
 		Price:    req.Price,
 		Amount:   req.Amount,
 	}
@@ -435,7 +436,7 @@ func (h *InventoryHandler) importNumbers(c *gin.Context) {
 	items := make([]models.InventoryNumber, 0, len(req.Items))
 	for _, it := range req.Items {
 		items = append(items, models.InventoryNumber{
-			Number: it.Number, Name: it.Name, Source: req.Source,
+			Number: it.Number, Name: it.Name, Source: req.Source, DocumentNumber: it.DocumentNumber,
 			Unit: it.Unit, Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
 		})
 	}
