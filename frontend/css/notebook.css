@@ -27,12 +27,21 @@
 .registry-total .summary-line{border:1px solid var(--line);margin-top:10px;padding:14px 18px}
 .registry-total .summary-line strong{font-size:20px}
 @media(max-width:760px){.registry-total-bar{padding:12px 14px 0}.registry-total .summary-line{gap:16px}}
-.opis-table table{min-width:1180px}
+.opis-table table{table-layout:fixed;width:100%}
 .opis-table th,.opis-table td{padding:12px 16px}
 .opis-table th{font-size:12px;letter-spacing:.05em}
-.opis-table td{font-size:15px;line-height:1.35;white-space:nowrap;vertical-align:middle}
-.opis-table tbody tr{height:46px}
-.opis-table td:first-child,.opis-table th:first-child{width:38%;max-width:520px}
+.opis-table td{font-size:15px;line-height:1.35;white-space:nowrap;vertical-align:middle;overflow:hidden;text-overflow:ellipsis}
 .opis-table td:first-child span{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
-.opis-table td:last-child,.opis-table th:last-child{width:1%}
-@media(max-width:760px){.opis-table th,.opis-table td{padding:10px 12px;font-size:14px}}
+.opis-table th:nth-child(1),.opis-table td:nth-child(1){width:29%}
+.opis-table th:nth-child(2),.opis-table td:nth-child(2){width:13%}
+.opis-table th:nth-child(3),.opis-table td:nth-child(3){width:6%}
+.opis-table th:nth-child(4),.opis-table td:nth-child(4){width:8%}
+.opis-table th:nth-child(5),.opis-table td:nth-child(5){width:9%}
+.opis-table th:nth-child(6),.opis-table td:nth-child(6){width:11%}
+.opis-table th:nth-child(7),.opis-table td:nth-child(7){width:12%}
+.opis-table th:nth-child(8),.opis-table td:nth-child(8){width:12%}
+.opis-table .btn{padding:5px 10px;min-height:32px;font-size:14px}
+@media(max-width:1200px){.opis-table .btn{padding:4px 7px;min-height:30px;font-size:13px}.opis-table th:nth-child(8),.opis-table td:nth-child(8){width:13%}}
+@media(max-width:1100px){.opis-table th,.opis-table td{padding:10px 12px}.opis-table td{font-size:14px}.opis-table th{font-size:11px}}
+@media(max-width:1000px){.opis-table table{min-width:780px}}
+@media(max-width:760px){.opis-table table{min-width:900px}.opis-table th,.opis-table td{padding:10px 12px;font-size:14px}}
