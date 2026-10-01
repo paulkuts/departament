@@ -81,9 +81,9 @@ export const date = (value, time = false) => {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU', time ? {dateStyle:'medium', timeStyle:'short'} : {dateStyle:'medium'});
 };
 export const status = (text, kind = '') => el('span', {class:`status ${kind}`}, text);
-export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.') {
+export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '') {
   if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
-  return el('div', {class:'table-scroll', tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
+  return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
     el('table', {}, el('thead', {}, el('tr', {}, headers.map(h => el('th', {scope:'col'}, h)))),
       el('tbody', {}, rows.map(row => el('tr', {}, row.map(cell => el('td', {}, cell ?? '—')))))));
 }

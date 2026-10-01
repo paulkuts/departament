@@ -1,5 +1,5 @@
-import {api} from './api.js?v=24';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=24';
+import {api} from './api.js?v=25';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=25';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -155,7 +155,7 @@ async function inventoryRegistry(q) {
   const items=list||[];
   const repeats=new Map();
   for(const x of items){const key=canonicalNumber(x.number);if(key)repeats.set(key,(repeats.get(key)||0)+1);}
-  const rows=items.map(x=>{const count=repeats.get(canonicalNumber(x.number))||1;return [x.name||'—',el('div',{},x.number||'—',count>1?el('small',{},`дубль · ${count} строки в описи`):null),x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))];});
+  const rows=items.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
   const s=summary||{};
   const totals=el('div',{class:'summary-line'},
     el('div',{},el('strong',{},String(s.count ?? items.length)),el('span',{},search?'строк найдено':'строк в описи')),
@@ -166,7 +166,7 @@ async function inventoryRegistry(q) {
   box.style.display=showTotals?'':'none';
   const toggle=input('show_totals','Показывать итог',showTotals,{type:'checkbox'});
   toggle.querySelector('input').addEventListener('change',event=>{const on=event.currentTarget.checked;box.style.display=on?'':'none';try{localStorage.setItem('inventoryTotals',on?'on':'off');}catch{}});
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']])]),el('div',{class:'registry-total-bar'},toggle,box),table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`)),await inventoryDocuments()));
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']])]),el('div',{class:'registry-total-bar'},toggle,box),table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${items.length} записей в описи`)),await inventoryDocuments()));
 }
 // Документы раздела — архив материального отдела: таблицы, ведомости, сканы.
 // Приложение их не разбирает: файлы просто хранятся, скачиваются и удаляются.
