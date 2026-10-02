@@ -1,5 +1,5 @@
-import {api} from './api.js?v=32';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=32';
+import {api} from './api.js?v=33';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=33';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -64,12 +64,15 @@ function queryRoute() {
 }
 async function route() {
   const token = ++revision;
+  const live = liveNav; liveNav = false;
   blobURLs.forEach(url=>URL.revokeObjectURL(url)); blobURLs=[];
   let [page,id,q] = queryRoute();
   if (!me && !['welcome','login','register','public-key'].includes(page)) page='login';
   if (me && ['login','register','welcome'].includes(page)) page='overview';
   shell(page); document.title = `${labels[page] || 'Карточка'} · Контур кафедры`;
-  content.replaceChildren(el('p',{class:'loading',role:'status'},'Загружаем записи…'));
+  // При живом поиске прежняя страница остаётся на экране: панель фильтров не мигает,
+  // курсор не пропадает, меняется только список — когда придут новые данные.
+  if (!live) content.replaceChildren(el('p',{class:'loading',role:'status'},'Загружаем записи…'));
   try {
     let node;
     if (['welcome','login','register'].includes(page)) node=authPage(page);
@@ -87,9 +90,10 @@ async function route() {
     else if (page==='requests') node=admin() ? await requestsPage() : forbidden();
     else if (page==='public-key') node=await publicKey(id);
     else node=el('div',{},head('Страница не найдена','Проверьте адрес или вернитесь к обзору.'),link('Открыть обзор','#/overview','btn'));
-    paint(node,token);
+    paint(node,token); if (token === revision) finishLiveSearch(page,q,live);
   } catch(error) {
     paint(sheet(body(el('h2',{},'Не удалось загрузить страницу'),el('p',{role:'alert'},error.message),button('Повторить',route))),token);
+    if (token === revision) finishLiveSearch(page,q,live);
   }
 }
 const forbidden = () => sheet(body(el('h2',{},'Недостаточно прав'),el('p',{},'Этот раздел доступен администраторам.'),link('Вернуться к обзору','#/overview','btn')));
@@ -113,9 +117,47 @@ function authPage(mode) {
 }
 // Скрытое поле: переносит значение в отправляемую форму, не занимая места в панели.
 function hiddenField(name,value) { return el('input',{type:'hidden',name,value}); }
+// Живой поиск: панель фильтров применяется сама при вводе, кнопки «Найти» нет.
+// Последний ввод запоминается в liveFilter — после перерисовки страницы (данные
+// приходят с сервера) в поле возвращаются фокус и курсор.
+let liveFilter = null, liveTimer = 0, liveNav = false, liveChain = false;
 function filterBar(page,q,fields) {
-  const box=el('form',{class:'filters',onsubmit:e=>{e.preventDefault();const params=new URLSearchParams(new FormData(box));for(const [k,v] of [...params])if(!v)params.delete(k);navTo(`${page}?${params}`);}},fields,el('button',{class:'btn',type:'submit'},'Найти'),link('Сбросить',`#/${page}`,'btn quiet'));
+  const apply = () => {
+    if (!box.isConnected) return; // панель уже перерисована: поиск идёт по новой
+    const params = new URLSearchParams(new FormData(box));
+    for (const [k,v] of [...params]) if (!v) params.delete(k);
+    const path = `${page}?${params}`;
+    const first = !liveChain;
+    liveNav = true; liveChain = true;
+    // Первый ввод добавляет запись в историю, дальше адрес заменяется: иначе
+    // кнопка «Назад» отматывала бы поиск по одной букве.
+    if (location.hash === `#/${path}`) route();
+    else if (first) location.hash = `/${path}`;
+    else { history.replaceState(null,'',`#/${path}`); route(); }
+  };
+  const box=el('form',{class:'filters',onsubmit:e=>{e.preventDefault();apply();}},fields,link('Сбросить',`#/${page}`,'btn quiet'));
+  for (const node of box.querySelectorAll('input,select')) {
+    if (node.type === 'hidden' || node.type === 'checkbox') continue;
+    const event = node.tagName === 'SELECT' ? 'change' : 'input';
+    node.addEventListener(event,()=>{
+      liveFilter = {page,name:node.name,value:node.value};
+      clearTimeout(liveTimer);
+      liveTimer = setTimeout(apply,event === 'change' ? 0 : 400);
+    });
+  }
   return box;
+}
+// Возвращает фокус в поле живого поиска после отрисовки страницы. Если во время
+// запроса набрали ещё — ищем по последнему вводу, а не по тому, что отправили.
+function finishLiveSearch(page,q,live) {
+  if (!live) { liveFilter = null; liveChain = false; return; }
+  if (!liveFilter || liveFilter.page !== page) return;
+  const search = content.querySelector(`.filters [name="${liveFilter.name}"]`);
+  if (!search) return;
+  if (search.value !== liveFilter.value) search.value = liveFilter.value;
+  search.focus();
+  try { search.setSelectionRange(search.value.length,search.value.length); } catch {}
+  if ((q.get(liveFilter.name) || '') !== liveFilter.value) search.dispatchEvent(new Event('input'));
 }
 function pager(page,q,meta={}) {
   const current=Number(meta.page)||1,total=Number(meta.total_pages)||1;
@@ -141,11 +183,11 @@ async function overview() {
 }
 async function inventoryList(page,q) {
   const activeType=q.get('type')||'';
-  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),inventory:q.get('inventory'),type:activeType,status:q.get('status')};
+  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),type:activeType,status:q.get('status')};
   const data=q.get('expired') ? await api.getExpiredVerification(20,params.offset) : await api.getInventory(params);
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
-    filterBar(page,q,[input('search','Название',q.get('search')||'',{placeholder:'Найти объект…'}),input('inventory','Инвентарный номер',q.get('inventory')||''),select('type','Категория',params.type,[['','Все категории'],...choose(types)]),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
+    filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('type','Категория',params.type,[['','Все категории'],...choose(types)]),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
     table(['Объект','Категория','Инв. №','Расположение','Следующая поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }

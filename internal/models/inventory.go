@@ -10,6 +10,7 @@ type Inventory struct {
 	Location             *string    `json:"location,omitempty" db:"location"`
 	Documentation        *string    `json:"documentation,omitempty" db:"documentation"`
 	InventoryNumber      *string    `json:"inventory_number,omitempty" db:"inventory_number"`
+	NameNormalized       string     `json:"-" db:"name_normalized"` // наименование для поиска без учёта регистра (SQLite не поднимает кириллицу)
 	ResponsibleID        *string    `json:"responsible_id,omitempty" db:"responsible_id"`
 	Status               bool       `json:"status" db:"status"`
 	UnavailableReason    *string    `json:"unavailable_reason,omitempty" db:"unavailable_reason"` // ← новое

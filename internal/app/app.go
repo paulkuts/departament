@@ -45,6 +45,11 @@ func Start(frontendFS embed.FS) {
 
 	logInstance.Info("initializing repository")
 	repo := repository.New(dbConn, logInstance)
+	// Реестр имущества заведён до появления name_normalized, а SQLite не поднимает
+	// регистр кириллицы: нормализуем наименования один раз при старте.
+	if err := repo.Equipment.BackfillNames(context.Background()); err != nil {
+		logInstance.Fatal("Inventory name backfill failed", zap.Error(err))
+	}
 	svc := service.New(dbConn, repo.User, repo.Article, repo.Token, repo.User, repo.Key, repo.KeyLog, repo.Equipment, repo.InventoryNumber, repo.Writeoff, repo.Photo, repo.Document, repo.Event, cfg, logInstance)
 	workspace := handler.NewWorkspaceHandler(dbConn, svc.Key)
 	handler := handler.New(svc.Auth, svc.Article, svc.User, svc.Key, svc.Equipment, svc.Photo, svc.Document, svc.Writeoff, svc.Event, cfg, logInstance)

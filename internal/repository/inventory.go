@@ -27,11 +27,12 @@ const inventoryColumns = `id, type, name, description, location, documentation, 
 
 // Create создаёт единицу оборудования
 func (r *InventoryRepo) Create(ctx context.Context, e *models.Inventory) error {
+	e.NameNormalized = NormalizeName(e.Name)
 	res, err := r.db.NamedExecContext(ctx,
 		`INSERT INTO inventory 
-			(name, type, description, location, documentation, inventory_number, responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date)
+			(name, name_normalized, type, description, location, documentation, inventory_number, responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date)
 		 VALUES 
-			(:name, :type, :description, :location, :documentation, :inventory_number, :responsible_id, :no_number_on_item, :not_in_registry, :status, :unavailable_reason, :last_verification_date, :next_verification_date)`, e)
+			(:name, :name_normalized, :type, :description, :location, :documentation, :inventory_number, :responsible_id, :no_number_on_item, :not_in_registry, :status, :unavailable_reason, :last_verification_date, :next_verification_date)`, e)
 	if err != nil {
 		return fmt.Errorf("insert inventory: %w", err)
 	}
@@ -69,7 +70,7 @@ func (r *InventoryRepo) GetByInventoryNumber(ctx context.Context, invNumber stri
 }
 
 // List возвращает список оборудования с фильтрами, пагинацией и общим количеством.
-//   - Search:          поиск по названию (LIKE %search%)
+//   - Search:          поиск по наименованию и инвентарному номеру (как в описи)
 //   - InventoryNumber: поиск по инвентарному номеру (LIKE inventory%)
 //   - Status:          фильтр по статусу (nil = без фильтра)
 //   - Limit / Offset:  пагинация
@@ -84,8 +85,12 @@ func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]m
 	}
 
 	if f.Search != nil {
-		conditions = append(conditions, "name LIKE ?")
-		args = append(args, "%"+*f.Search+"%") // содержит
+		// Одно поле ищет и наименование, и инвентарный номер — как в описи
+		// материального отдела. Наименование сравниваем в нормализованном виде:
+		// SQLite не поднимает регистр кириллицы, иначе «стол» не нашёл бы «Стол».
+		// Номер — в верхнем регистре (запрос поднимает Go, а не SQLite).
+		conditions = append(conditions, "(name_normalized LIKE ? OR UPPER(inventory_number) LIKE ?)")
+		args = append(args, "%"+NormalizeName(*f.Search)+"%", "%"+strings.ToUpper(*f.Search)+"%") // содержит
 	}
 
 	if f.InventoryNumber != nil {
@@ -153,9 +158,11 @@ func (r *InventoryRepo) ListExpiredVerification(ctx context.Context, limit, offs
 
 // Update обновляет данные оборудования
 func (r *InventoryRepo) Update(ctx context.Context, e *models.Inventory) error {
+	e.NameNormalized = NormalizeName(e.Name)
 	res, err := r.db.NamedExecContext(ctx,
 		`UPDATE inventory SET 
 			name = :name,
+			name_normalized = :name_normalized,
 			type = :type,
 			description = :description,
 			location = :location,
@@ -189,6 +196,28 @@ func (r *InventoryRepo) Delete(ctx context.Context, id int64) error {
 	n, _ := res.RowsAffected()
 	if n == 0 {
 		return errors.New("inventory not found")
+	}
+	return nil
+}
+
+// BackfillNames заполняет name_normalized у строк, заведённых до появления колонки.
+// SQLite не поднимает регистр кириллицы, поэтому нормализация — на стороне Go.
+// Вызывается при старте, повторный вызов ничего не меняет.
+func (r *InventoryRepo) BackfillNames(ctx context.Context) error {
+	rows := []struct {
+		ID   int64  `db:"id"`
+		Name string `db:"name"`
+	}{}
+	if err := r.db.SelectContext(ctx, &rows, `SELECT id, name FROM inventory WHERE name_normalized = ''`); err != nil {
+		return fmt.Errorf("select inventory for name backfill: %w", err)
+	}
+	for _, row := range rows {
+		if _, err := r.db.ExecContext(ctx, `UPDATE inventory SET name_normalized = ? WHERE id = ?`, NormalizeName(row.Name), row.ID); err != nil {
+			return fmt.Errorf("backfill inventory name %d: %w", row.ID, err)
+		}
+	}
+	if len(rows) > 0 {
+		r.log.Info("inventory name_normalized backfilled", zap.Int("rows", len(rows)))
 	}
 	return nil
 }
