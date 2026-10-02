@@ -35,11 +35,11 @@ var months = [...]string{
 }
 
 // WriteoffRow — строка отчёта: позиция описи и причина списания.
+// Графа «код по ОКЕИ» остаётся пустой: коды не заполняем.
 type WriteoffRow struct {
 	Name     string
 	Number   string
 	Unit     string
-	OKEI     string
 	Quantity string
 	Reason   string
 }
@@ -103,6 +103,20 @@ func BuildWriteoff(p WriteoffParams) ([]byte, error) {
 		}
 	}
 
+	// Бланк набран Times New Roman, а в строках-заготовках стоит Calibri:
+	// переносим оформление бланка на заполняемые ячейки. Рамки берём из самой
+	// заготовки — меняем только шрифт и выравнивание.
+	sampleName := fmt.Sprintf("B%d", firstRow)
+	sampleBody := fmt.Sprintf("A%d", firstRow)
+	nameStyle, err := rowStyle(f, sheet, sampleName, "justify")
+	if err != nil {
+		return nil, err
+	}
+	bodyStyle, err := rowStyle(f, sheet, sampleBody, "center")
+	if err != nil {
+		return nil, err
+	}
+
 	for i, row := range p.Rows {
 		line := firstRow + i
 		cells := []struct {
@@ -114,14 +128,27 @@ func BuildWriteoff(p WriteoffParams) ([]byte, error) {
 			{"C", row.Number},   // учетный номер
 			{"D", ""},           // иное (при наличии)
 			{"E", row.Unit},     // единица измерения
-			{"F", row.OKEI},     // код по ОКЕИ
+			{"F", ""},           // код по ОКЕИ не заполняется
 			{"G", row.Quantity}, // фактически израсходовано
 			{"H", row.Reason},   // причина списания
 		}
 		for _, cell := range cells {
-			if err := f.SetCellValue(sheet, fmt.Sprintf("%s%d", cell.col, line), cell.value); err != nil {
+			cellName := fmt.Sprintf("%s%d", cell.col, line)
+			if err := f.SetCellValue(sheet, cellName, cell.value); err != nil {
 				return nil, fmt.Errorf("fill report row %d: %w", line, err)
 			}
+			style := bodyStyle
+			if cell.col == "B" {
+				style = nameStyle
+			}
+			if err := f.SetCellStyle(sheet, cellName, cellName, style); err != nil {
+				return nil, fmt.Errorf("style report row %d: %w", line, err)
+			}
+		}
+		// Высота строки — автоматическая: длинное наименование переносится по
+		// строкам, и строка подрастает под него, а не обрезает текст.
+		if err := f.SetRowHeight(sheet, line, -1); err != nil {
+			return nil, fmt.Errorf("relax report row height %d: %w", line, err)
 		}
 	}
 
@@ -136,6 +163,32 @@ func BuildWriteoff(p WriteoffParams) ([]byte, error) {
 		return nil, fmt.Errorf("write report: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// rowStyle собирает стиль заполняемой ячейки: шрифт бланка, перенос по строкам
+// и выравнивание (наименование — по ширине, остальные графы — по центру).
+// Оформление берётся из заготовки строки, поэтому рамки сохраняются.
+func rowStyle(f *excelize.File, sheet, sample, horizontal string) (int, error) {
+	id, err := f.GetCellStyle(sheet, sample)
+	if err != nil {
+		return 0, fmt.Errorf("read report cell style: %w", err)
+	}
+	style, err := f.GetStyle(id)
+	if err != nil {
+		return 0, fmt.Errorf("read report style %d: %w", id, err)
+	}
+	// Новый стиль собираем по частям: если отдать в NewStyle весь прочитанный
+	// стиль целиком, excelize добавит пустую заливку (<fill></fill>), и файл
+	// перестаёт открываться в сторонних библиотеках и редакторах.
+	styleID, err := f.NewStyle(&excelize.Style{
+		Font:      &excelize.Font{Family: "Times New Roman", Size: 10},
+		Alignment: &excelize.Alignment{Horizontal: horizontal, Vertical: "center", WrapText: true},
+		Border:    style.Border,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("make report style: %w", err)
+	}
+	return styleID, nil
 }
 
 // trimTail убирает пустые строки после блока подписей. В бланке размечена не
@@ -195,44 +248,4 @@ func periodParts(value string) (day, year string, err error) {
 // без хвостовых нулей (2.5 → «2,5», 10 → «10»).
 func QuantityText(value float64) string {
 	return strings.Replace(strconv.FormatFloat(value, 'f', -1, 64), ".", ",", 1)
-}
-
-// Коды ОКЕИ — по единице измерения из описи. Незнакомая единица даёт пустую
-// графу: выдумывать код нельзя, бланк заполняют вручную.
-var okei = map[string]string{
-	"шт":        "796",
-	"штука":     "796",
-	"штук":      "796",
-	"компл":     "839",
-	"комплект":  "839",
-	"набор":     "839",
-	"кг":        "166",
-	"килограмм": "166",
-	"г":         "163",
-	"грамм":     "163",
-	"т":         "168",
-	"тонна":     "168",
-	"л":         "112",
-	"литр":      "112",
-	"мл":        "111",
-	"м":         "006",
-	"м2":        "055",
-	"м²":        "055",
-	"м3":        "113",
-	"м³":        "113",
-	"пач":       "728",
-	"пачка":     "728",
-	"упак":      "778",
-	"упаковка":  "778",
-	"рул":       "736",
-	"рулон":     "736",
-	"банка":     "736",
-}
-
-// OKEIFor — код по ОКЕИ для единицы измерения («шт» → 796).
-func OKEIFor(unit string) string {
-	key := strings.ToLower(strings.TrimSpace(unit))
-	key = strings.TrimSuffix(key, ".")
-	key = strings.ReplaceAll(key, " ", "")
-	return okei[key]
 }

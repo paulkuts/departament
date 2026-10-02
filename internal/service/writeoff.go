@@ -128,7 +128,6 @@ func (s *WriteoffService) BuildReport(ctx context.Context, params ReportParams) 
 			Name:     d.Name,
 			Number:   d.Number,
 			Unit:     d.Unit,
-			OKEI:     report.OKEIFor(d.Unit),
 			Quantity: report.QuantityText(d.Quantity),
 			Reason:   d.Reason,
 		})
