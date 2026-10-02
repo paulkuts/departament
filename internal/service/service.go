@@ -50,7 +50,7 @@ func New(
 		Article:   NewArticleService(articleRepo, log),
 		User:      NewUserService(userRepo, cfg.Photo, hasher, log),
 		Key:       NewKeyService(keyRepo, keyLogRepo, db, log),
-		Equipment: NewEquipmentService(equipmentRepo, inventoryNumberRepo, log),
+		Equipment: NewEquipmentService(equipmentRepo, inventoryNumberRepo, cfg.Photo.InventoryPhotoDir, log),
 		Writeoff:  NewWriteoffService(writeoffRepo, log),
 		Photo:     NewPhotoService(photo, equipmentRepo, cfg.Photo, log),
 		Document:  NewDocumentService(documentRepo, cfg.Document, log),

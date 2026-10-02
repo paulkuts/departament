@@ -1,5 +1,5 @@
-import {api} from './api.js?v=34';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=34';
+import {api} from './api.js?v=35';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=35';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -425,6 +425,150 @@ async function blobImage(url,alt,className='') {
   if(!res.ok)return el('span',{class:'muted'},'Изображение недоступно');
   const src=URL.createObjectURL(await res.blob());blobURLs.push(src);return el('img',{src,alt,class:className});
 }
+// ── Фотографии объекта ──────────────────────────────────────────────────────
+// Снимок с телефона весит 6–12 МБ и по мобильной сети уходит долго (сервер такие
+// загрузки обрывал). Поэтому картинку готовит браузер: уменьшает до 2500 px по
+// длинной стороне и отдаёт JPEG. EXIF-поворот применяет он же — фото не встаёт
+// набок ни в превью, ни в миниатюре, которую делает сервер.
+const photoMaxSide = 2500;
+const photoMaxBytes = 2 * 1024 * 1024;
+const photoUploadLimit = 20 * 1024 * 1024;
+const photoHint = 'или нажмите, чтобы выбрать файлы · можно несколько сразу · JPEG, PNG, WebP, GIF';
+
+// decodeImage читает картинку средствами браузера: если он формат не понимает
+// (HEIC на большинстве устройств), сюда прилетит ошибка, и файл уйдёт в тост.
+async function decodeImage(file) {
+  if (window.createImageBitmap) {
+    try { return await createImageBitmap(file,{imageOrientation:'from-image'}); } catch { /* пробуем обычным путём */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve,reject) => {
+      const node = new Image();
+      node.onload = () => resolve(node);
+      node.onerror = () => reject(new Error('формат не поддерживается браузером — сохраните фото как JPEG'));
+      node.src = url;
+    });
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// preparePhoto возвращает то, что уйдёт на сервер: имя и сам файл. Небольшие
+// снимки в поддерживаемом формате отправляем как есть, крупные — сжимаем.
+async function preparePhoto(file) {
+  const image = await decodeImage(file);
+  const width = image.width || image.naturalWidth, height = image.height || image.naturalHeight;
+  if (file.size <= photoMaxBytes && Math.max(width,height) <= photoMaxSide) return {blob:file,name:file.name};
+  const scale = Math.min(1, photoMaxSide / Math.max(width,height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1,Math.round(width * scale));
+  canvas.height = Math.max(1,Math.round(height * scale));
+  canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+  if (image.close) image.close();
+  const blob = await new Promise((resolve,reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('не удалось сжать фото')),'image/jpeg',0.88));
+  return {blob,name:(file.name || 'фото.jpg').replace(/\.[^.]+$/,'') + '.jpg'};
+}
+
+// Поле загрузки — как у документов раздела: перетащить или выбрать, можно
+// несколько файлов сразу, каждый уходит отдельным запросом.
+function photoUpload(inventoryId) {
+  const status = el('small',{},photoHint);
+  const input = el('input',{type:'file',multiple:'',accept:'image/*',class:'drop-input','aria-label':'Выбрать фотографии',onchange:event=>{const node=event.currentTarget;send([...node.files]);node.value='';}});
+  const zone = el('label',{class:'drop-zone photo-drop',
+    ondragover:event=>{event.preventDefault();zone.classList.add('over');},
+    ondragleave:()=>zone.classList.remove('over'),
+    ondrop:event=>{event.preventDefault();zone.classList.remove('over');send([...event.dataTransfer.files]);}},
+    input,el('span',{class:'drop-mark','aria-hidden':'true'},'＋'),el('strong',{},'Перетащите фотографии сюда'),status);
+  async function send(files) {
+    const list = (files || []).filter(file => file && file.size);
+    if (!list.length) return;
+    zone.classList.add('busy');
+    let loaded = 0;
+    for (const [index,file] of list.entries()) {
+      status.textContent = list.length > 1 ? `Готовим и загружаем ${index+1} из ${list.length}…` : 'Готовим и загружаем…';
+      try {
+        const prepared = await preparePhoto(file);
+        if (prepared.blob.size > photoUploadLimit) { toast(`«${file.name}» больше 20 МБ`); continue; }
+        await api.uploadPhoto(inventoryId,prepared.blob,prepared.name);
+        loaded++;
+      } catch (error) { toast(`«${file.name}»: ${error.message}`); }
+    }
+    zone.classList.remove('busy');
+    status.textContent = photoHint;
+    if (loaded) { toast(loaded === 1 ? 'Фотография загружена' : `Загружено фотографий: ${loaded}`); route(); }
+  }
+  return zone;
+}
+
+// Полноразмерный просмотр: снимок целиком (object-fit: contain, поэтому и
+// панорама, и вертикальное фото видны полностью), листание стрелками и свайпом,
+// скачивание и удаление — в том же диалоге, что и остальные окна сайта.
+async function photoView(list,start,name) {
+  let index = start, touchX = null;
+  const stage = el('div',{class:'photo-stage'});
+  const counter = el('span',{class:'photo-counter'});
+  const caption = el('span',{class:'photo-caption'});
+  const prev = button('‹',() => show(index - 1),'navy');
+  const next = button('›',() => show(index + 1),'navy');
+  prev.dataset.dir = 'prev'; next.dataset.dir = 'next';
+  prev.title = 'Предыдущее фото'; next.title = 'Следующее фото';
+  prev.setAttribute('aria-label','Предыдущее фото'); next.setAttribute('aria-label','Следующее фото');
+
+  async function show(at) {
+    index = (at + list.length) % list.length;
+    const photo = list[index];
+    counter.textContent = list.length > 1 ? `${index+1} / ${list.length}` : '1 фото';
+    caption.textContent = [photo.filename,photo.width ? `${photo.width}×${photo.height}` : '',sizeText(photo.size_bytes),date(photo.created_at,true)].filter(Boolean).join(' · ');
+    stage.replaceChildren(await blobImage(api.photoUrl(photo.id),photo.filename || name,'photo-full'),prev,next);
+    prev.hidden = next.hidden = list.length < 2;
+  }
+
+  const dialog = modal(name,el('div',{class:'photo-view'},stage,
+    el('div',{class:'photo-meta'},counter,caption),
+    el('div',{class:'photo-actions'},
+      button('Скачать',async()=>{const photo=list[index];try{await api.downloadPhoto(photo.id,photo.filename);}catch(error){toast(error.message);}},'navy'),
+      admin() ? button('Удалить фото',()=>{const photo=list[index];remove('Удалить фото',photo.filename || name,()=>api.deletePhoto(photo.id));}) : null)));
+  dialog.classList.add('photo-modal');
+
+  stage.addEventListener('touchstart',event=>{touchX=event.changedTouches[0].clientX;},{passive:true});
+  stage.addEventListener('touchend',event=>{
+    if (touchX === null) return;
+    const dx = event.changedTouches[0].clientX - touchX;
+    touchX = null;
+    if (Math.abs(dx) > 40) show(dx < 0 ? index + 1 : index - 1);
+  },{passive:true});
+
+  const onKey = event => { if (event.key === 'ArrowLeft') show(index - 1); else if (event.key === 'ArrowRight') show(index + 1); };
+  document.addEventListener('keydown',onKey);
+  dialog.addEventListener('close',()=>{document.removeEventListener('keydown',onKey);dialog.classList.remove('photo-modal');},{once:true});
+
+  await show(index);
+}
+
+// Раздел фотографий в карточке объекта: сетка миниатюр (сервер отдаёт их
+// размером 480 px, поэтому карточка открывается быстро) плюс поле загрузки
+// для администратора.
+async function photoSection(photos,inventoryId,item) {
+  const list = photos || [];
+  const grid = el('div',{class:'gallery'});
+  for (const [index,photo] of list.entries()) {
+    const shot = await blobImage(api.photoThumbUrl(photo.id),photo.filename || item.name,'gallery-shot');
+    if (shot.tagName === 'IMG') { shot.classList.add('gallery-zoom'); shot.addEventListener('click',()=>photoView(list,index,item.name)); }
+    const card = el('figure',{class:'gallery-item'},shot,el('figcaption',{title:photo.filename || ''},photo.filename || 'фото'));
+    if (admin()) {
+      const del = button('✕',()=>remove('Удалить фото',photo.filename || 'фото',()=>api.deletePhoto(photo.id)),'icon');
+      del.title = 'Удалить фото';
+      del.setAttribute('aria-label',`Удалить «${photo.filename || 'фото'}»`);
+      card.append(del);
+    }
+    grid.append(card);
+  }
+  const content = list.length
+    ? body(grid,el('p',{class:'photo-hint'},'Нажмите на снимок, чтобы посмотреть его целиком.'))
+    : body(el('div',{class:'empty'},el('h3',{},'Фотографий пока нет'),el('p',{},admin()?'Перетащите снимки в поле ниже — они появятся здесь.':'Снимки объекта добавляет администратор.')));
+  const qr = button('Показать QR объекта',async()=>modal('QR объекта',el('div',{},await blobImage(api.qrCodeUrl(inventoryId),'QR объекта','qr'),el('p',{},'Карточка доступна после входа.'))));
+  return sheet(sh('Фотографии и QR',list.length ? `Фотографий: ${list.length}` : 'Снимки объекта: общий вид, шильдик, состояние',qr),content,admin()?body(photoUpload(inventoryId)):null);
+}
+
 async function inventoryDetail(id,page) {
   const x=await api.getInventoryById(id);
   const [photos,comments,loans]=await Promise.all([api.getPhotos(id),request(`/inventory/${id}/comments`),request(`/inventory/${id}/loans`)]);
@@ -434,9 +578,7 @@ async function inventoryDetail(id,page) {
   const registryFields=record?[['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)],...(admin()?[['Цена, ₽',numText(record.price)],['Сумма, ₽',numText(record.amount)]]:[])]:null;
   const registryBlock=sheet(sh('Запись в инвентаризации',admin()?'Опись материального отдела. Видят только администраторы.':'Позиция из описи материального отдела.'),registryFields?body(details(registryFields),admin()?el('div',{class:'actions'},button('Изменить запись',()=>inventoryNumberForm(record),'quiet')):null):body(el('p',{},x.inventory_number?'В инвентаризации нет позиции с этим инвентарным номером.':'У объекта не указан инвентарный номер — сверять не с чем.')));
   const root=el('div',{},link('← К реестру',`#/${page}`,'back-link'),head(x.name,`${types[x.type]||x.type} · ${x.inventory_number||'Без инвентарного номера'}`,admin()?button('Редактировать',()=>inventoryForm(x,page),'primary'):null),el('div',{class:'detail-grid'},sheet(sh('Карточка объекта'),body(details([['Расположение',x.location],['Инвентарный номер',x.inventory_number||'—'],['Ответственный',responsible],['Состояние',status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')],['Следующая поверка',verification(x.next_verification_date)],['Последняя поверка',date(x.last_verification_date)],['Документация',x.documentation?external(x.documentation,x.documentation):'—']]),inventoryNumberMarks(x)),body(el('h3',{},'Описание'),el('p',{class:'prose'},x.description||'Описание пока не добавлено.'))),sheet(sh('Временное пользование',activeLoan?'Объект сейчас выдан':'Нет активной выдачи'),body(activeLoan?details([['Получатель',activeLoan.borrower],['Дата выдачи',date(activeLoan.issued_at,true)],['Комментарий',activeLoan.comment]]):el('p',{},'Передайте оборудование сотруднику и сохраните запись о выдаче.'),admin()&&x.type==='equipment'?button(activeLoan?'Оформить возврат':'Выдать оборудование',async()=>{if(activeLoan){confirmAction('Оформить возврат',`Подтвердите возврат «${x.name}».`,async()=>{await request(`/loans/${activeLoan.id}/return`,'POST',{});route();});}else await loanForm(x);},'primary'):null)),registryBlock));
-  const gallery=el('div',{class:'photo-grid'});
-  for(const p of photos||[])gallery.append(el('figure',{},await blobImage(api.photoUrl(p.id),p.filename||x.name),el('figcaption',{},p.filename),admin()?button('Удалить фото',()=>remove('Удалить фото',p.filename||x.name,()=>api.deletePhoto(p.id)),'quiet'):null));
-  root.append(sheet(sh('Фотографии и QR'),body(gallery,admin()?upload('Добавить фотографию',file=>api.uploadPhoto(id,file)):null,button('Показать QR объекта',async()=>modal('QR объекта',el('div',{},await blobImage(api.qrCodeUrl(id),'QR объекта','qr'),el('p',{},'Карточка доступна после входа.')))))));
+  root.append(await photoSection(photos,id,x));
   root.append(sheet(sh('Комментарии',`${comments.length} записей`),el('ul',{class:'journal-list'},comments.map(c=>el('li',{},el('strong',{},c.author||'Сотрудник'),el('small',{},date(c.created_at,true)),el('p',{class:'prose'},c.body)))),body(form([input('body','Добавить комментарий','',{type:'textarea',required:true,maxlength:5000})],'Отправить',async data=>{await request(`/inventory/${id}/comments`,'POST',data);route();}))));
   if(loans.length)root.append(sheet(sh('История выдачи'),table(['Получатель','Выдано','Возвращено','Комментарий'],loans.map(l=>[l.borrower,date(l.issued_at,true),l.returned_at?date(l.returned_at,true):status('На руках','warn'),l.comment]))));
   if(admin())root.append(button('Удалить объект',()=>remove('Удалить объект',x.name,()=>api.deleteInventory(id)),'danger'));return root;

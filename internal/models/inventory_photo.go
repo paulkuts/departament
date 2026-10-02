@@ -9,7 +9,10 @@ type InventoryPhoto struct {
 	InventoryID int64     `json:"inventory_id" db:"inventory_id"`
 	Filename    string    `json:"filename" db:"filename"`
 	StoredName  string    `json:"-" db:"stored_name"` // не отдаём клиенту
+	ThumbName   string    `json:"-" db:"thumb_name"`  // миниатюра для сетки превью
 	ContentType string    `json:"content_type" db:"content_type"`
+	Width       int       `json:"width" db:"width"`
+	Height      int       `json:"height" db:"height"`
 	SizeBytes   int64     `json:"size_bytes" db:"size_bytes"`
 	UploadedBy  *string   `json:"uploaded_by,omitempty" db:"uploaded_by"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`

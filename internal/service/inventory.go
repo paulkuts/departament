@@ -36,13 +36,14 @@ type InventoryNumberRepo interface {
 }
 
 type EquipmentService struct {
-	repo    EquipmentRepo
-	numbers InventoryNumberRepo
-	log  *zap.Logger
+	repo     EquipmentRepo
+	numbers  InventoryNumberRepo
+	photoDir string // каталог фотографий: при удалении объекта убираем его папку
+	log      *zap.Logger
 }
 
-func NewEquipmentService(repo EquipmentRepo, numbers InventoryNumberRepo, log *zap.Logger) *EquipmentService {
-	return &EquipmentService{repo: repo, numbers: numbers, log: log}
+func NewEquipmentService(repo EquipmentRepo, numbers InventoryNumberRepo, photoDir string, log *zap.Logger) *EquipmentService {
+	return &EquipmentService{repo: repo, numbers: numbers, photoDir: photoDir, log: log}
 }
 
 // Create создаёт оборудование с проверкой уникальности инвентарного номера
@@ -166,6 +167,12 @@ func (s *EquipmentService) Delete(ctx context.Context, id int64) error {
 			zap.Error(err),
 		)
 		return fmt.Errorf("delete equipment: %w", err)
+	}
+
+	// Строки фотографий уходят каскадом вместе с объектом, а файлы остались бы
+	// на диске сиротами — убираем папку объекта.
+	if err := removePhotoDir(s.photoDir, id); err != nil {
+		s.log.Warn("failed to remove equipment photo dir", zap.Int64("id", id), zap.Error(err))
 	}
 
 	s.log.Info("equipment deleted", zap.Int64("id", id))

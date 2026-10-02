@@ -23,9 +23,9 @@ func NewPhotoRepo(db *sqlx.DB, log *zap.Logger) *PhotoRepo {
 
 func (r *PhotoRepo) Create(ctx context.Context, p *models.InventoryPhoto) error {
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO inventory_photos (inventory_id, filename, stored_name, content_type, size_bytes, uploaded_by)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-		p.InventoryID, p.Filename, p.StoredName, p.ContentType, p.SizeBytes, p.UploadedBy,
+		`INSERT INTO inventory_photos (inventory_id, filename, stored_name, thumb_name, content_type, size_bytes, width, height, uploaded_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.InventoryID, p.Filename, p.StoredName, p.ThumbName, p.ContentType, p.SizeBytes, p.Width, p.Height, p.UploadedBy,
 	)
 	if err != nil {
 		return fmt.Errorf("insert photo: %w", err)
@@ -37,7 +37,7 @@ func (r *PhotoRepo) Create(ctx context.Context, p *models.InventoryPhoto) error 
 func (r *PhotoRepo) ListByInventory(ctx context.Context, inventoryID int64) ([]models.InventoryPhoto, error) {
 	var photos []models.InventoryPhoto
 	err := r.db.SelectContext(ctx, &photos,
-		`SELECT id, inventory_id, filename, stored_name, content_type, size_bytes, uploaded_by, created_at
+		`SELECT id, inventory_id, filename, stored_name, thumb_name, content_type, size_bytes, width, height, uploaded_by, created_at
      FROM inventory_photos WHERE inventory_id = ? ORDER BY id ASC`, inventoryID)
 	if err != nil {
 		return nil, fmt.Errorf("list photos: %w", err)
@@ -48,7 +48,7 @@ func (r *PhotoRepo) ListByInventory(ctx context.Context, inventoryID int64) ([]m
 func (r *PhotoRepo) GetByID(ctx context.Context, id int64) (*models.InventoryPhoto, error) {
 	p := &models.InventoryPhoto{}
 	err := r.db.GetContext(ctx, p,
-		`SELECT id, inventory_id, filename, stored_name, content_type, size_bytes, uploaded_by, created_at
+		`SELECT id, inventory_id, filename, stored_name, thumb_name, content_type, size_bytes, width, height, uploaded_by, created_at
          FROM inventory_photos WHERE id = ?`, id)
 	if err == sql.ErrNoRows {
 		return nil, nil

@@ -206,11 +206,14 @@ class ApiClient {
     getPhotos(inventoryId) { return this.request(`/inventory/${inventoryId}/photos`); }
     deletePhoto(photoId)   { return this.request(`/photos/${photoId}`, { method: 'DELETE' }); }
     photoUrl(photoId)      { return `${this.baseURL}/photos/${photoId}`; }
+    photoThumbUrl(photoId) { return `${this.baseURL}/photos/${photoId}/thumb`; }
     qrCodeUrl(inventoryId) { return `${this.baseURL}/inventory/${inventoryId}/qr`; }
 
-    async uploadPhoto(inventoryId, file, _isRetry = false) {
+    // Файл берём с исходным именем: blob после сжатия в браузере имени не имеет,
+    // и на сервере фото подписывалось бы как «blob».
+    async uploadPhoto(inventoryId, file, name = '', _isRetry = false) {
         const formData = new FormData();
-        formData.append('photo', file);
+        formData.append('photo', file, name || file.name || 'photo.jpg');
 
         const headers = {};
         if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
@@ -224,7 +227,7 @@ class ApiClient {
 
         if (res.status === 401 && !_isRetry) {
             const refreshed = await this.refresh();
-            if (refreshed) return this.uploadPhoto(inventoryId, file, true);
+            if (refreshed) return this.uploadPhoto(inventoryId, file, name, true);
             this.clearToken();
             window.dispatchEvent(new Event('auth:logout'));
             throw new Error('Сессия истекла');
@@ -339,6 +342,39 @@ class ApiClient {
         const a = document.createElement('a');
         a.href = url;
         a.download = filename || 'документ';
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
+    // Скачивание фото идёт через fetch: файл отдаётся только с токеном в
+    // заголовке, обычная ссылка не подойдёт.
+    async downloadPhoto(photoId, filename, _isRetry = false) {
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/photos/${photoId}?download=1`, {
+            credentials: 'include',
+            headers,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.downloadPhoto(photoId, filename, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `Ошибка ${res.status}`);
+        }
+
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || 'фото';
         document.body.append(a);
         a.click();
         a.remove();
