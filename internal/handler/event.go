@@ -46,29 +46,35 @@ func (h *EventHandler) RegisterPublicRoutes(rg *gin.RouterGroup) {
 	}
 }
 
+// msk — время кафедры (Белгород, UTC+3, переходов на летнее время нет с 2014 года).
+// В форме человек вводит московское время, а в базе всё в UTC.
+var msk = time.FixedZone("MSK", 3*60*60)
+
 // parseDateTime парсит дату-время формата "2006-01-02T15:04" или "2006-01-02 15:04"
+// как московское и возвращает момент в UTC.
 func parseDateTime(s *string) (*time.Time, error) {
 	if s == nil || *s == "" {
 		return nil, nil
 	}
 
 	// Пробуем формат ISO 8601 с T
-	t, err := time.Parse("2006-01-02T15:04", *s)
+	t, err := time.ParseInLocation("2006-01-02T15:04", *s, msk)
 	if err != nil {
 		// Пробуем формат с пробелом
-		t, err = time.Parse("2006-01-02 15:04", *s)
+		t, err = time.ParseInLocation("2006-01-02 15:04", *s, msk)
 		if err != nil {
 			// Пробуем полный формат ISO 8601
-			t, err = time.Parse("2006-01-02T15:04:05", *s)
+			t, err = time.ParseInLocation("2006-01-02T15:04:05", *s, msk)
 			if err != nil {
 				// Пробуем полный формат с пробелом
-				t, err = time.Parse("2006-01-02 15:04:05", *s)
+				t, err = time.ParseInLocation("2006-01-02 15:04:05", *s, msk)
 				if err != nil {
 					return nil, err
 				}
 			}
 		}
 	}
+	t = t.UTC()
 	return &t, nil
 }
 

@@ -1,5 +1,5 @@
-import {api} from './api.js?v=38';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=38';
+import {api} from './api.js?v=40';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=40';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -385,17 +385,33 @@ function documentUpload() {
 // Tailscale): сайт только проксирует запрос, поэтому тяжёлая работа не ложится на
 // rf-vps, а ключ сервиса не попадает в браузер. Список форматов приходит от движка,
 // «популярные» поднимаем наверх — для PDF это Word, текст, HTML, книга и картинки.
+// Файлы и история живут на движке ограниченное время, поэтому страница показывает,
+// что лежит там сейчас: результат можно скачать снова или перевести исходник ещё раз,
+// пока он не удалился вместе с историей.
 const convertOrder = ['docx','pdf','xlsx','pptx','txt','jpg','jpeg','png','html','md','odt','rtf','epub','csv','webp','pdf/a','svg','tiff','mp3','mp4','mobi','fb2','odg','ods','tex','json'];
 const convertNames = {docx:'Word (.docx)',pdf:'PDF (.pdf)',xlsx:'Excel (.xlsx)',pptx:'Презентация (.pptx)',txt:'Текст (.txt)',jpg:'Картинка JPEG',jpeg:'Картинка JPEG',png:'Картинка PNG',webp:'Картинка WebP',tiff:'Картинка TIFF',bmp:'Картинка BMP',gif:'Анимация GIF',ico:'Иконка ICO',avif:'Картинка AVIF',jxl:'JPEG XL',heic:'HEIC',svg:'Вектор SVG',svgz:'Вектор SVG (сжатый)',eps:'EPS',md:'Markdown',html:'Веб-страница',epub:'Электронная книга',mobi:'Книга MOBI',azw3:'Книга AZW3',fb2:'Книга FB2',cbz:'Архив картинок CBZ','pdf/a':'PDF/A (архив)',odt:'OpenDocument (.odt)',ods:'Таблица ODS',odg:'Графика OpenDocument',rtf:'RTF',csv:'Таблица CSV',tsv:'Таблица TSV',tex:'LaTeX',json:'JSON',jsonl:'JSON Lines',yaml:'YAML',xml:'XML',parquet:'Parquet',sqlite:'SQLite',mp3:'Аудио MP3',m4a:'Аудио M4A',m4b:'Аудиокнига M4B',flac:'Аудио FLAC',opus:'Аудио Opus',aac:'Аудио AAC',wav:'Аудио WAV',oga:'Аудио Ogg',mp4:'Видео MP4',webm:'Видео WebM',mkv:'Видео MKV'};
 const convertLabel = target => convertNames[target] || `Файл .${target}`;
 const convertBase = name => String(name || 'file').replace(/\.[^./\\]+$/, '');
+const convertExt = item => String((item && (item.extension || item.media_type)) || '').replace(/^\./, '').toLowerCase().split('/').pop();
+// Срок хранения приходит от движка в минутах: на странице он должен звучать словами.
+const convertTerm = minutes => {
+  const m = Math.round(Number(minutes) || 0);
+  if (!m) return 'ограниченное время';
+  if (m === 1440) return 'сутки';
+  if (m % 1440 === 0) return `${m / 1440} суток`;
+  if (m === 60) return 'час';
+  if (m % 60 === 0) return `${m / 60} часа`;
+  return `${m} минут`;
+};
 
 async function converter() {
-  let cfg = {enabled:true, max_file_size:50*1024*1024};
-  try { cfg = await api.convertStatus(); } catch { /* про недоступность скажем при первой попытке */ }
+  let cfg = {enabled:true, available:true, retention_minutes:1440, max_file_size:50*1024*1024};
+  try { cfg = Object.assign(cfg, await api.convertStatus()); } catch { /* о недоступности скажем при первой попытке */ }
   const limit = cfg.max_file_size || 50*1024*1024;
+  const term = convertTerm(cfg.retention_minutes);
   const board = el('div',{class:'convert-board'});
-  const made = []; // id результатов: их удаление идёт через историю конвертаций
+  const historyBox = el('div',{class:'convert-history'});
+  const stored = {files:[], results:[]}; // что движок держит прямо сейчас
   const input = el('input',{type:'file',class:'drop-input','aria-label':'Выбрать файл',onchange:event=>{const node=event.currentTarget;const files=[...node.files];node.value='';send(files);}});
   const zone = el('label',{class:'drop-zone',ondragover:event=>{event.preventDefault();zone.classList.add('over');},ondragleave:()=>zone.classList.remove('over'),ondrop:event=>{event.preventDefault();zone.classList.remove('over');send([...event.dataTransfer.files]);}},
     input,el('span',{class:'drop-mark','aria-hidden':'true'},'⇄'),el('strong',{},'Перетащите файл сюда'),el('small',{},`или нажмите, чтобы выбрать · документы, таблицы, картинки, книги, аудио и видео · до ${sizeText(limit)}`));
@@ -406,16 +422,75 @@ async function converter() {
     if (file.size > limit) { toast(`«${file.name}» больше ${sizeText(limit)}`); return; }
     zone.classList.add('busy');
     board.replaceChildren(el('p',{class:'muted'},'Загружаем файл на домашний сервер…'));
-    try { showFormats(await api.uploadConvertFile(file)); }
-    catch (err) { board.replaceChildren(el('p',{class:'muted'},`Файл не загрузился: ${err.message}`)); }
+    try {
+      showFormats(await api.uploadConvertFile(file));
+      loadHistory();
+    } catch (err) { board.replaceChildren(el('p',{class:'muted'},`Файл не загрузился: ${err.message}`)); }
     finally { zone.classList.remove('busy'); }
+  }
+
+  // История: что загружено, во что уже переведено и что можно скачать снова. Живёт
+  // на движке и укорачивается вместе с автоочисткой, поэтому список перечитываем
+  // после каждого действия, а не держим в памяти браузера.
+  async function loadHistory() {
+    historyBox.replaceChildren(el('p',{class:'muted'},'Смотрим, что лежит на домашнем сервере…'));
+    try {
+      const [f, c] = await Promise.all([api.getConvertFiles(), api.getConvertConversions()]);
+      stored.files = f.files || [];
+      stored.results = c.conversions || [];
+    } catch (err) {
+      stored.files = []; stored.results = [];
+      historyBox.replaceChildren(el('p',{class:'muted'},`Список не удалось получить: ${err.message}`));
+      return;
+    }
+    if (!stored.files.length) {
+      historyBox.replaceChildren(el('p',{class:'muted'},'На домашнем сервере сейчас ничего не хранится.'));
+      return;
+    }
+    const rows = stored.files.map(f => {
+      const mine = stored.results.filter(r => r.original_file && r.original_file.id === f.id);
+      const got = mine.length ? el('div',{class:'convert-chips'},mine.map(r => {
+        const ext = convertExt(r);
+        const name = `${convertBase(f.original_filename)}.${ext}`;
+        return button(convertLabel(ext),async()=>{try{await api.downloadConvert(r.id,name);}catch(err){toast(err.message);}},'navy');
+      })) : el('span',{class:'muted'},'ещё не переводили');
+      return [
+        f.original_filename || 'без имени',
+        sizeText(f.size_bytes),
+        date(f.created_at,true),
+        got,
+        actions(button('Ещё формат',()=>showFormats(f),'navy'),erase(f)),
+      ];
+    });
+    historyBox.replaceChildren(
+      table(['Файл','Размер','Загружен','Готовые файлы',''],rows),
+      el('div',{class:'sheet-foot'},el('span',{},`${stored.files.length} на хранении · ${stored.results.length} результатов`)));
+  }
+
+  // Убираем и исходник, и его результаты: результат конвертации через /files не
+  // удаляется (движок отвечает 404), он живёт в истории конвертаций.
+  function erase(file) {
+    const node = button('✕',async()=>{
+      const mine = stored.results.filter(r => r.original_file && r.original_file.id === file.id);
+      try {
+        await api.deleteConvertFile(file.id);
+        for (const r of mine) await api.deleteConversion(r.id);
+      } catch (err) { toast(err.message); return; }
+      board.replaceChildren();
+      toast('Убрано с домашнего сервера');
+      loadHistory();
+    },'icon');
+    node.title = 'Убрать этот файл и его результаты';
+    node.setAttribute('aria-label',`Убрать «${file.original_filename || 'файл'}»`);
+    return node;
   }
 
   function showFormats(meta) {
     const formats = Object.keys(meta.compatible_formats || {});
     const results = el('div',{class:'convert-results'});
+    const source = el('div',{class:'convert-source'},el('small',{},`Файл: ${meta.original_filename || 'без имени'} · ${sizeText(meta.size_bytes)}`),erase(meta));
     if (!formats.length) {
-      board.replaceChildren(el('p',{class:'muted'},'Для этого формата движок не предложил вариантов.'), dropFile(meta));
+      board.replaceChildren(el('p',{class:'muted'},'Для этого формата движок не предложил вариантов.'), source);
       return;
     }
     const popular = convertOrder.filter(t => formats.includes(t)).slice(0,6);
@@ -426,20 +501,8 @@ async function converter() {
       chips(popular),
       rest.length ? el('details',{class:'convert-all'},el('summary',{},`все форматы (${formats.length})`),chips(rest)) : null,
       results,
-      dropFile(meta)
+      source
     );
-  }
-
-  function dropFile(meta) {
-    const del = button('Убрать файлы с сервера',async()=>{
-      try {
-        await api.deleteConvertFile(meta.id);
-        for (const id of made) await api.deleteConversion(id);
-      } catch (err) { toast(err.message); return; }
-      made.length = 0;
-      board.replaceChildren(); toast('Файлы убраны');
-    },'icon');
-    return el('div',{class:'convert-source'},el('small',{},`Файл: ${meta.original_filename || 'без имени'} · ${sizeText(meta.size_bytes)}`),del);
   }
 
   async function run(target, meta, results) {
@@ -447,20 +510,26 @@ async function converter() {
     try {
       const done = await api.convertFile(meta.id, target);
       if (!done || !done.id) throw new Error('движок не вернул файл');
-      made.push(done.id);
       const name = `${convertBase(meta.original_filename)}${done.extension || '.' + target}`;
       results.replaceChildren(el('div',{class:'convert-result'},
         el('div',{},el('strong',{},name),el('small',{},` · ${sizeText(done.size_bytes)}`)),
         button('Скачать',async()=>{try{await api.downloadConvert(done.id,name);}catch(err){toast(err.message);}},'navy')));
+      loadHistory();
     } catch (err) {
       results.replaceChildren(el('p',{class:'muted'},`Не получилось: ${err.message}`));
     }
   }
 
-  return sheet(sh('Конвертер файлов','Перетащите файл — покажем, во что его можно перевести. Обрабатывается на домашнем сервере кафедры, файл никуда наружу не уходит.'),
-    body(cfg.enabled === false ? el('p',{class:'muted'},'Конвертер не настроен на сервере: укажите адрес движка в конфигурации.') : null, zone, board));
-}
+  const note = el('p',{class:'convert-warning'},
+    `Файлы и история конвертаций хранятся на домашнем сервере ${term}, потом удаляются автоматически — вместе с историей. Список ниже всегда показывает только то, что ещё лежит на сервере.`);
+  const offline = cfg.available === false ? el('p',{class:'convert-warning'},'Домашний сервер с конвертером сейчас не отвечает: конвертация временно недоступна, файлы и история не показываются.') : null;
 
+  const page = sheet(sh('Конвертер файлов','Перетащите файл — покажем, во что его можно перевести. Обрабатывается на домашнем сервере кафедры, файл никуда наружу не уходит.'),
+    body(cfg.enabled === false ? el('p',{class:'muted'},'Конвертер не настроен на сервере: укажите адрес движка в конфигурации.') : null, offline, note, zone, board),
+    sheet(sh('История конвертаций за 24 часа',null,button('Обновить',()=>loadHistory(),'quiet')), body(historyBox)));
+  loadHistory();
+  return page;
+}
 function inventoryNumberForm(x) {
   // Сумма строки не вводится руками: она считается как цена × количество, и при
   // правке количества пересчитывается (и в форме, и на сервере).
@@ -750,7 +819,7 @@ function eventView(x) {
   modal(x.title,el('div',{},details([['Когда',date(x.start_time,true)],['Где',x.location],['Организатор',x.creator_full_name],['Видимость',x.is_public?'Общее событие':'Личное событие']]),el('p',{class:'prose'},x.description||'Описание не добавлено.'),can?actions(button('Редактировать',()=>eventForm(x),'primary'),button('Удалить',()=>remove('Удалить событие',x.title,()=>api.deleteEvent(x.id)),'danger')):null));
 }
 function eventForm(x) {
-  modal(x?'Редактировать событие':'Новое событие',form([input('title','Название',x?.title,{required:true,maxlength:255}),input('location','Место',x?.location,{required:true}),input('start_time','Дата и время',x?.start_time?.replace(' ','T').slice(0,16),{type:'datetime-local',required:true}),input('description','Что нужно сделать',x?.description,{type:'textarea',maxlength:5000}),input('is_public','Общее событие: видно коллегам',x?.is_public??true,{type:'checkbox'})],'Сохранить',async data=>{const payload={...nullable(data),is_public:data.is_public==='on'};if(x)await api.updateEvent(x.id,payload);else await api.createEvent(payload);closeModal();route();}));
+  modal(x?'Редактировать событие':'Новое событие',form([input('title','Название',x?.title,{required:true,maxlength:255}),input('location','Место',x?.location,{required:true}),input('start_time','Дата и время',dateLocal(x?.start_time),{type:'datetime-local',required:true}),input('description','Что нужно сделать',x?.description,{type:'textarea',maxlength:5000}),input('is_public','Общее событие: видно коллегам',x?.is_public??true,{type:'checkbox'})],'Сохранить',async data=>{const payload={...nullable(data),is_public:data.is_public==='on'};if(x)await api.updateEvent(x.id,payload);else await api.createEvent(payload);closeModal();route();}));
 }
 async function users(q) {
   const data=await api.getUsers(),search=(q.get('search')||'').toLowerCase();

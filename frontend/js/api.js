@@ -276,6 +276,11 @@ class ApiClient {
     convertStatus()        { return this.request('/convert/status'); }
     deleteConvertFile(id)  { return this.request(`/convert/files/${id}`, { method: 'DELETE' }); }
 
+    // Что лежит на движке сейчас: загруженные файлы (с доступными форматами)
+    // и история конвертаций «что во что».
+    getConvertFiles()        { return this.request('/convert/files'); }
+    getConvertConversions()  { return this.request('/convert/conversions/complete'); }
+
     // Результат конвертации живёт в истории конвертаций: через /convert/files/{id}
     // он не удаляется (404), убирается только этой ручкой.
     deleteConversion(id)   { return this.request(`/convert/conversions/${id}`, { method: 'DELETE' }); }

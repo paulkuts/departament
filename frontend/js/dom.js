@@ -75,10 +75,30 @@ export function confirmAction(title, description, action) {
     button('Отмена', closeModal), button(title, async () => { await action(); closeModal(); }, 'danger'))));
 }
 export function closeModal() { document.getElementById('dialog').close(); }
+// Время в базе и в API — UTC. Беззоновую строку («2026-10-05 13:07:25» — так отдаёт
+// API и движок конвертера) браузер иначе прочитал бы как местное время и показал
+// UTC под видом московского; поэтому зону подставляем сами. Показываем и вводим
+// время по Москве: кафедра в Белгороде, все журналы идут по МСК.
+const MSK = 'Europe/Moscow';
+const parseStamp = value => {
+  if (!value) return null;
+  const text = String(value).trim();
+  const naive = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?$/.test(text);
+  const d = new Date(naive ? text.replace(' ', 'T') + 'Z' : text);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 export const date = (value, time = false) => {
-  if (!value) return '—';
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('ru-RU', time ? {dateStyle:'medium', timeStyle:'short'} : {dateStyle:'medium'});
+  const d = parseStamp(value);
+  return d ? d.toLocaleString('ru-RU', time ? {dateStyle:'medium', timeStyle:'short', timeZone:MSK} : {dateStyle:'medium', timeZone:MSK}) : '—';
+};
+// Значение для поля datetime-local: человек вводит московское время, а в API оно
+// уходит как есть (сервер разбирает его по МСК и хранит в UTC).
+export const dateLocal = value => {
+  const d = parseStamp(value);
+  if (!d) return '';
+  const parts = new Intl.DateTimeFormat('ru-RU', {timeZone:MSK, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false}).formatToParts(d);
+  const get = type => (parts.find(p => p.type === type) || {}).value;
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 };
 export const status = (text, kind = '') => el('span', {class:`status ${kind}`}, text);
 export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '') {

@@ -131,3 +131,6 @@ tbody tr:hover{background:#d7e6f4}
 .convert-result small{color:var(--muted)}
 .convert-source{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
 .convert-source .btn.icon{color:var(--muted)}
+.convert-warning{margin:0 0 4px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent,var(--ink));background:var(--white);color:var(--ink);font-size:13px;line-height:1.45}
+.convert-history .convert-chips{gap:6px}
+.convert-history .btn.navy{font-size:13px;padding:6px 10px}

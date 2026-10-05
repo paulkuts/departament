@@ -1,10 +1,12 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"mitm-departament/internal/config"
@@ -12,20 +14,28 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Конвертер файлов: тонкий прокси к Transmute на домашнем сервере (CT102 на PVE,
-// доступен по Tailscale). Ключ сервиса хранится только на сервере сайта, поэтому
-// страница ходит через этот маршрут, а не в Transmute напрямую. Тяжёлая работа
-// (LibreOffice, pandoc, ffmpeg) идёт на домашнем сервере, rf-vps не нагружается.
+// Конвертер файлов: тонкий прокси к движку конвертации (Transmute на CT102 в PVE,
+// доступен по Tailscale). Ключ движка хранится только на сервере сайта, поэтому
+// страница ходит через этот маршрут, а не в движок напрямую: тяжёлая работа идёт
+// на домашнем сервере, rf-vps не нагружается.
 type ConvertHandler struct {
 	cfg    config.ConvertConfig
 	client *http.Client
+
+	healthMu  sync.Mutex
+	healthOK  bool
+	healthAt  time.Time
+
+	retentionMu sync.Mutex
+	retention   int       // срок хранения файлов на движке, минут (0 — неизвестно)
+	retentionAt time.Time // когда значение получено
 }
 
 func NewConvertHandler(cfg config.ConvertConfig) *ConvertHandler {
 	return &ConvertHandler{cfg: cfg, client: &http.Client{Timeout: convertTimeout}}
 }
 
-// Разрешённые разделы Transmute: файлы, конвертации и проверка живости.
+// Разрешённые разделы движка: файлы, конвертации и проверка живости.
 var convertAllowedPrefixes = []string{"/files", "/conversions", "/health"}
 
 // Все маршруты движка живут под /api (см. его OpenAPI): /api/files, /api/conversions.
@@ -39,16 +49,12 @@ func (h *ConvertHandler) RegisterRoutes(rg *gin.RouterGroup) {
 
 func (h *ConvertHandler) handle(c *gin.Context) {
 	path := c.Param("path") // начинается с «/»
-	// Статус отдаём сами, без обращения к домашнему серверу: страница узнаёт,
-	// настроен ли раздел и какой у него предел размера файла.
+	// Статус отдаём сами: страница узнаёт, настроен ли раздел, какой предел размера
+	// файла, сколько файлы хранятся на движке и отвечает ли он сейчас.
 	if path == "/status" {
-		c.JSON(http.StatusOK, gin.H{
-			"enabled":       h.cfg.BaseURL != "",
-			"max_file_size": h.cfg.MaxFileSize,
-		})
+		h.status(c)
 		return
 	}
-
 	if h.cfg.BaseURL == "" {
 		c.JSON(http.StatusServiceUnavailable, ErrorResponse{Error: "конвертер не настроен"})
 		return
@@ -95,10 +101,12 @@ func (h *ConvertHandler) handle(c *gin.Context) {
 
 	resp, err := h.client.Do(req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, ErrorResponse{Error: "конвертер недоступен: домашний сервер не отвечает"})
+		h.markHealth(false)
+		c.JSON(http.StatusBadGateway, ErrorResponse{Error: "домашний сервер с конвертером не отвечает — попробуйте позже"})
 		return
 	}
 	defer resp.Body.Close()
+	h.markHealth(true)
 
 	for _, name := range []string{"Content-Type", "Content-Disposition"} {
 		if v := resp.Header.Get(name); v != "" {
@@ -108,6 +116,87 @@ func (h *ConvertHandler) handle(c *gin.Context) {
 	c.Header("Cache-Control", "private, no-store")
 	c.Status(resp.StatusCode)
 	_, _ = io.Copy(c.Writer, resp.Body)
+}
+
+// status — то, что страница показывает до первой конвертации и в предупреждении
+// о сроке хранения файлов.
+func (h *ConvertHandler) status(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":           h.cfg.BaseURL != "",
+		"available":         h.available(),
+		"max_file_size":     h.cfg.MaxFileSize,
+		"retention_minutes": h.retentionMinutes(),
+	})
+}
+
+// available проверяет живость домашнего сервера не чаще, чем раз в convertHealthTTL.
+func (h *ConvertHandler) available() bool {
+	h.healthMu.Lock()
+	defer h.healthMu.Unlock()
+	if time.Since(h.healthAt) < convertHealthTTL {
+		return h.healthOK
+	}
+	if h.cfg.BaseURL == "" {
+		h.healthOK, h.healthAt = false, time.Now()
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(h.cfg.BaseURL, "/")+convertUpstreamPrefix+"/health/ready", nil)
+	if err != nil {
+		h.healthOK, h.healthAt = false, time.Now()
+		return false
+	}
+	if h.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+h.cfg.APIKey)
+	}
+	resp, err := (&http.Client{Timeout: convertProbeTimeout}).Do(req)
+	h.healthAt = time.Now()
+	if err != nil {
+		h.healthOK = false
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	h.healthOK = resp.StatusCode == http.StatusOK
+	return h.healthOK
+}
+
+func (h *ConvertHandler) markHealth(ok bool) {
+	h.healthMu.Lock()
+	h.healthOK, h.healthAt = ok, time.Now()
+	h.healthMu.Unlock()
+}
+
+// retentionMinutes — срок хранения файлов на движке (на странице — предупреждение).
+func (h *ConvertHandler) retentionMinutes() int {
+	h.retentionMu.Lock()
+	defer h.retentionMu.Unlock()
+	if time.Since(h.retentionAt) < convertRetentionTTL {
+		return h.retention
+	}
+	h.retentionAt = time.Now()
+	h.retention = 0
+	if h.cfg.BaseURL == "" {
+		return h.retention
+	}
+	req, err := http.NewRequest(http.MethodGet, strings.TrimSuffix(h.cfg.BaseURL, "/")+convertUpstreamPrefix+"/settings", nil)
+	if err != nil {
+		return h.retention
+	}
+	if h.cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+h.cfg.APIKey)
+	}
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return h.retention
+	}
+	defer resp.Body.Close()
+	var payload struct {
+		CleanupTTL int `json:"cleanup_ttl_minutes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err == nil {
+		h.retention = payload.CleanupTTL
+	}
+	return h.retention
 }
 
 func convertPathAllowed(path string) bool {
@@ -120,6 +209,9 @@ func convertPathAllowed(path string) bool {
 }
 
 const (
-	convertTimeout            = 15 * time.Minute
-	convertMultipartOverhead  = 1 << 20 // 1 МБ на границы multipart при неизвестной длине
+	convertTimeout           = 15 * time.Minute
+	convertProbeTimeout      = 4 * time.Second
+	convertHealthTTL         = 60 * time.Second
+	convertRetentionTTL      = 5 * time.Minute
+	convertMultipartOverhead = 1 << 20 // 1 МБ на границы multipart при неизвестной длине
 )
