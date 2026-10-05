@@ -48,6 +48,14 @@ type DocumentConfig struct {
 	MaxDocuments    int    `mapstructure:"max_documents"`
 }
 
+// ConvertConfig — конвертер файлов: тонкий прокси к Transmute на домашнем сервере
+// (CT102 на PVE, доступен по Tailscale). Пустой base_url выключает раздел.
+type ConvertConfig struct {
+	BaseURL     string `mapstructure:"base_url"`
+	APIKey      string `mapstructure:"api_key"`
+	MaxFileSize int    `mapstructure:"max_file_size"`
+}
+
 // LoggerConfig настройки логгера (совместим с zap.Config)
 type LoggerConfig struct {
 	Level             string   `mapstructure:"level" validate:"oneof=debug info warn error dpanic panic fatal"`
@@ -75,6 +83,7 @@ type Config struct {
 	DB       DBConfig       `mapstructure:"db"`
 	Photo    PhotoConfig    `mapstructure:"photo"`
 	Document DocumentConfig `mapstructure:"documents"`
+	Convert  ConvertConfig  `mapstructure:"convert"`
 	Logger   LoggerConfig   `mapstructure:"logger"`
 	Server ServerConfig `mapstructure:"server"`
 }
@@ -151,6 +160,9 @@ func setDefaults(v *viper.Viper) {
 	// Documents — архив раздела «Инвентаризация» (в конфиге можно переопределить)
 	v.SetDefault("documents.max_document_size", 52428800) // 50 МБ
 	v.SetDefault("documents.max_documents", 100)
+
+	// Convert — конвертер файлов (base_url задаётся в конфиге сервера)
+	v.SetDefault("convert.max_file_size", 52428800) // 50 МБ
 
 	// Logger (совместимо с zap)
 	v.SetDefault("logger.level", "info")

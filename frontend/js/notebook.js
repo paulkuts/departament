@@ -1,5 +1,5 @@
-import {api} from './api.js?v=35';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=35';
+import {api} from './api.js?v=36';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=36';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -8,12 +8,14 @@ const canEditReference = () => me?.role === 'admin' || me?.role === 'staff';
 // Разделы, скрытые из меню сотрудника до доработки: доступ по прямой ссылке остаётся.
 const staffHiddenPages = ['reference'];
 // Разделы только для администраторов: скрыты из меню и закрыты по прямой ссылке.
-const adminOnlyPages = ['inventory'];
+// «Конвертер» закрыт на время обкатки: регистрация на сайте открыта, а конвертация
+// занимает процессор домашнего сервера.
+const adminOnlyPages = ['inventory','convert'];
 const roles = {admin:'Администратор',staff:'Сотрудник',teacher:'Преподаватель',student:'Студент'};
 const types = {equipment:'Оборудование',inventory:'Мебель и инвентарь',raw_material:'Химикаты и материалы',other:'Посуда и другое'};
 const keyStatuses = {available:'Свободен',issued:'Выдан',lost:'Утерян'};
 const articleStatuses = {planned:'В работе',submitted:'На рассмотрении',published:'Опубликована'};
-const labels = {overview:'Рабочий обзор',equipment:'Оборудование',inventory:'Инвентаризация',keys:'Ключи',events:'Задачи и события',articles:'Публикации',reference:'Справочник',assistants:'Ассистенты',notes:'Мои заметки',profile:'Мой профиль',users:'Коллеги и доступ',requests:'Заявки на ключи',welcome:'О кафедре',login:'Вход',register:'Регистрация'};
+const labels = {overview:'Рабочий обзор',equipment:'Оборудование',inventory:'Инвентаризация',keys:'Ключи',events:'Задачи и события',articles:'Публикации',reference:'Справочник',assistants:'Ассистенты',convert:'Конвертер файлов',notes:'Мои заметки',profile:'Мой профиль',users:'Коллеги и доступ',requests:'Заявки на ключи',welcome:'О кафедре',login:'Вход',register:'Регистрация'};
 const request = (path, method = 'GET', body) => api.request(path, {method, ...(body ? {body:JSON.stringify(body)} : {})});
 const navTo = (path) => { if (location.hash === `#/${path}`) route(); else location.hash = `/${path}`; };
 const head = (title, subtitle, ...buttons) => el('div',{class:'page-heading'},el('div',{},el('h1',{},title),el('p',{},subtitle)),actions(buttons));
@@ -38,6 +40,7 @@ function shell(page) {
     ['', [['overview','Обзор','▦']]],
     ['Реестры',[['equipment','Оборудование','⌕'],['inventory','Инвентаризация','▤'],['keys','Ключи','⚿'],['events','Задачи и события','◷']]],
     ['Научная работа',[['articles','Публикации','≡'],['reference','Справочник','▥'],['assistants','Ассистенты','◇']]],
+    ['Инструменты',[['convert','Конвертер файлов','⇄']]],
     ['Личное',[['notes','Мои заметки','▧'],['profile','Мой профиль','○']]],
     ...(admin() ? [['Управление',[['users','Коллеги и доступ','♧'],['requests','Заявки на ключи','↗']]]] : [])
   ] : [['',[['welcome','О пространстве','▦'],['login','Войти','→'],['register','Регистрация','＋']]]];
@@ -79,6 +82,7 @@ async function route() {
     else if (page==='overview') node=await overview();
     else if (page==='equipment') node=id ? await inventoryDetail(id,page) : await inventoryList(page,q);
     else if (page==='inventory') node=admin() ? await inventoryRegistry(q) : forbidden();
+    else if (page==='convert') node=admin() ? await converter() : forbidden();
     else if (page==='keys') node=id ? await keyDetail(id) : await keyList(q);
     else if (page==='articles') node=id ? await articleDetail(id) : await articleList(q);
     else if (page==='events') node=await events(q);
@@ -378,6 +382,81 @@ function documentUpload() {
   }
   return zone;
 }
+// ─── Конвертер файлов ───
+// Движок конвертации живёт на домашнем сервере кафедры (CT102 на PVE, доступен по
+// Tailscale): сайт только проксирует запрос, поэтому тяжёлая работа не ложится на
+// rf-vps, а ключ сервиса не попадает в браузер. Список форматов приходит от движка,
+// «популярные» поднимаем наверх — для PDF это Word, текст, HTML, книга и картинки.
+const convertOrder = ['docx','pdf','xlsx','pptx','txt','jpg','jpeg','png','html','md','odt','rtf','epub','csv','webp','pdf/a','svg','tiff','mp3','mp4','mobi','fb2','odg','ods','tex','json'];
+const convertNames = {docx:'Word (.docx)',pdf:'PDF (.pdf)',xlsx:'Excel (.xlsx)',pptx:'Презентация (.pptx)',txt:'Текст (.txt)',jpg:'Картинка JPEG',jpeg:'Картинка JPEG',png:'Картинка PNG',webp:'Картинка WebP',tiff:'Картинка TIFF',bmp:'Картинка BMP',gif:'Анимация GIF',ico:'Иконка ICO',avif:'Картинка AVIF',jxl:'JPEG XL',heic:'HEIC',svg:'Вектор SVG',svgz:'Вектор SVG (сжатый)',eps:'EPS',md:'Markdown',html:'Веб-страница',epub:'Электронная книга',mobi:'Книга MOBI',azw3:'Книга AZW3',fb2:'Книга FB2',cbz:'Архив картинок CBZ','pdf/a':'PDF/A (архив)',odt:'OpenDocument (.odt)',ods:'Таблица ODS',odg:'Графика OpenDocument',rtf:'RTF',csv:'Таблица CSV',tsv:'Таблица TSV',tex:'LaTeX',json:'JSON',jsonl:'JSON Lines',yaml:'YAML',xml:'XML',parquet:'Parquet',sqlite:'SQLite',mp3:'Аудио MP3',m4a:'Аудио M4A',m4b:'Аудиокнига M4B',flac:'Аудио FLAC',opus:'Аудио Opus',aac:'Аудио AAC',wav:'Аудио WAV',oga:'Аудио Ogg',mp4:'Видео MP4',webm:'Видео WebM',mkv:'Видео MKV'};
+const convertLabel = target => convertNames[target] || `Файл .${target}`;
+const convertBase = name => String(name || 'file').replace(/\.[^./\\]+$/, '');
+
+async function converter() {
+  let cfg = {enabled:true, max_file_size:50*1024*1024};
+  try { cfg = await api.convertStatus(); } catch { /* про недоступность скажем при первой попытке */ }
+  const limit = cfg.max_file_size || 50*1024*1024;
+  const board = el('div',{class:'convert-board'});
+  const input = el('input',{type:'file',class:'drop-input','aria-label':'Выбрать файл',onchange:event=>{const node=event.currentTarget;const files=[...node.files];node.value='';send(files);}});
+  const zone = el('label',{class:'drop-zone',ondragover:event=>{event.preventDefault();zone.classList.add('over');},ondragleave:()=>zone.classList.remove('over'),ondrop:event=>{event.preventDefault();zone.classList.remove('over');send([...event.dataTransfer.files]);}},
+    input,el('span',{class:'drop-mark','aria-hidden':'true'},'⇄'),el('strong',{},'Перетащите файл сюда'),el('small',{},`или нажмите, чтобы выбрать · документы, таблицы, картинки, книги, аудио и видео · до ${sizeText(limit)}`));
+
+  async function send(files) {
+    const file = (files || []).find(f => f && f.size);
+    if (!file) return;
+    if (file.size > limit) { toast(`«${file.name}» больше ${sizeText(limit)}`); return; }
+    zone.classList.add('busy');
+    board.replaceChildren(el('p',{class:'muted'},'Загружаем файл на домашний сервер…'));
+    try { showFormats(await api.uploadConvertFile(file)); }
+    catch (err) { board.replaceChildren(el('p',{class:'muted'},`Файл не загрузился: ${err.message}`)); }
+    finally { zone.classList.remove('busy'); }
+  }
+
+  function showFormats(meta) {
+    const formats = Object.keys(meta.compatible_formats || {});
+    const results = el('div',{class:'convert-results'});
+    if (!formats.length) {
+      board.replaceChildren(el('p',{class:'muted'},'Для этого формата движок не предложил вариантов.'), dropFile(meta));
+      return;
+    }
+    const popular = convertOrder.filter(t => formats.includes(t)).slice(0,6);
+    const rest = formats.filter(t => !popular.includes(t)).sort((a,b)=>a.localeCompare(b,'ru'));
+    const chips = list => el('div',{class:'convert-chips'},list.map(t => button(convertLabel(t),()=>run(t,meta,results),'navy')));
+    board.replaceChildren(
+      el('div',{class:'convert-hint'},el('strong',{},'Во что перевести:')),
+      chips(popular),
+      rest.length ? el('details',{class:'convert-all'},el('summary',{},`все форматы (${formats.length})`),chips(rest)) : null,
+      results,
+      dropFile(meta)
+    );
+  }
+
+  function dropFile(meta) {
+    const del = button('Убрать файл с сервера',async()=>{
+      try { await api.deleteConvertFile(meta.id); } catch (err) { toast(err.message); return; }
+      board.replaceChildren(); toast('Файл убран');
+    },'icon');
+    return el('div',{class:'convert-source'},el('small',{},`Файл: ${meta.original_filename || 'без имени'} · ${sizeText(meta.size_bytes)}`),del);
+  }
+
+  async function run(target, meta, results) {
+    results.replaceChildren(el('p',{class:'muted'},`Конвертируем в ${convertLabel(target).toLowerCase()}…`));
+    try {
+      const done = await api.convertFile(meta.id, target);
+      if (!done || !done.id) throw new Error('движок не вернул файл');
+      const name = `${convertBase(meta.original_filename)}${done.extension || '.' + target}`;
+      results.replaceChildren(el('div',{class:'convert-result'},
+        el('div',{},el('strong',{},name),el('small',{},` · ${sizeText(done.size_bytes)}`)),
+        button('Скачать',async()=>{try{await api.downloadConvert(done.id,name);}catch(err){toast(err.message);}},'navy')));
+    } catch (err) {
+      results.replaceChildren(el('p',{class:'muted'},`Не получилось: ${err.message}`));
+    }
+  }
+
+  return sheet(sh('Конвертер файлов','Перетащите файл — покажем, во что его можно перевести. Обрабатывается на домашнем сервере кафедры, файл никуда наружу не уходит.'),
+    body(cfg.enabled === false ? el('p',{class:'muted'},'Конвертер не настроен на сервере: укажите адрес движка в конфигурации.') : null, zone, board));
+}
+
 function inventoryNumberForm(x) {
   // Сумма строки не вводится руками: она считается как цена × количество, и при
   // правке количества пересчитывается (и в форме, и на сервере).

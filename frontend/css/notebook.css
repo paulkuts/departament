@@ -118,3 +118,16 @@ tbody tr:hover{background:#d7e6f4}
 .photo-stage img{max-height:54vh}
 .photo-stage .btn[data-dir=prev]{left:4px}
 .photo-stage .btn[data-dir=next]{right:4px}}
+
+/* Конвертер файлов: варианты перевода и результаты */
+.convert-board{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+.convert-hint{color:var(--ink);font-weight:600}
+.convert-chips{display:flex;flex-wrap:wrap;gap:8px}
+.convert-all{margin-top:4px}
+.convert-all summary{cursor:pointer;color:var(--muted);font-size:13px;padding:4px 0}
+.convert-all .convert-chips{margin-top:8px}
+.convert-results:empty{display:none}
+.convert-result{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 14px;border:1px solid var(--line);background:var(--white)}
+.convert-result small{color:var(--muted)}
+.convert-source{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+.convert-source .btn.icon{color:var(--muted)}

@@ -270,6 +270,72 @@ class ApiClient {
         return data;
     }
 
+    // ─── Конвертер файлов ───
+    // Движок конвертации живёт на домашнем сервере; сайт только проксирует запрос,
+    // поэтому ключ сервиса остаётся на сервере и в браузер не попадает.
+    convertStatus()        { return this.request('/convert/status'); }
+    deleteConvertFile(id)  { return this.request(`/convert/files/${id}`, { method: 'DELETE' }); }
+
+    convertFile(id, target) {
+        return this.request('/convert/conversions', { method: 'POST', body: JSON.stringify({ id, output_format: target }) });
+    }
+
+    async uploadConvertFile(file, _isRetry = false) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/convert/files`, {
+            method: 'POST',
+            credentials: 'include',
+            headers,
+            body: formData,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.uploadConvertFile(file, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || data.detail || `Ошибка ${res.status}`);
+        return data.metadata || data;
+    }
+
+    // Результат отдаётся только с токеном в заголовке, поэтому сохраняем полученный blob.
+    async downloadConvert(id, fallback = 'file', _isRetry = false) {
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/convert/files/${id}`, {
+            credentials: 'include',
+            headers,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.downloadConvert(id, fallback, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+        if (!res.ok) throw new Error(`Не удалось скачать файл (${res.status})`);
+
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileNameFromHeader(res, fallback);
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+
     // ─── Списание позиций описи ───
     // Отметка живёт на сервере: вкладку «Списание» видно и с другого устройства.
     getWriteoffs()         { return this.request('/inventory-writeoffs'); }

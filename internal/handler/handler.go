@@ -59,6 +59,7 @@ type Handler struct {
 	inventory *InventoryHandler
 	photo     *InventoryPhotoHandler
 	document  *InventoryDocumentHandler
+	convert   *ConvertHandler
 	writeoff  *WriteoffHandler
 	event     *EventHandler
 	userSvc   UserService
@@ -80,6 +81,7 @@ func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, ke
 		inventory: NewInventoryHandler(InventorySvc),
 		photo:     NewPhotoHandler(photoSvc, cfg.Photo),
 		document:  NewDocumentHandler(documentSvc, cfg.Document),
+		convert:   NewConvertHandler(cfg.Convert),
 		writeoff:  NewWriteoffHandler(writeoffSvc),
 		event:     NewEventHandler(eventSvc, userSvc),
 		userSvc:   userSvc,
@@ -137,6 +139,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		h.inventory.RegisterRoutes(protected)
 		h.photo.RegisterRoutes(protected)
 		h.document.RegisterRoutes(protected)
+		h.convert.RegisterRoutes(protected)
 		h.writeoff.RegisterRoutes(protected)
 		h.user.RegisterRoutes(protected)
 		h.event.RegisterRoutes(protected)
