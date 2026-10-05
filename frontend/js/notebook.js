@@ -1,5 +1,5 @@
-import {api} from './api.js?v=40';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=40';
+import {api} from './api.js?v=41';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=41';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -521,7 +521,7 @@ async function converter() {
   }
 
   const note = el('p',{class:'convert-warning'},
-    `Файлы и история конвертаций хранятся на домашнем сервере ${term}, потом удаляются автоматически — вместе с историей. Список ниже всегда показывает только то, что ещё лежит на сервере.`);
+    `Файлы и история конвертаций хранятся ровно ${term}, потом удаляются автоматически.`);
   const offline = cfg.available === false ? el('p',{class:'convert-warning'},'Домашний сервер с конвертером сейчас не отвечает: конвертация временно недоступна, файлы и история не показываются.') : null;
 
   const page = sheet(sh('Конвертер файлов','Перетащите файл — покажем, во что его можно перевести. Обрабатывается на домашнем сервере кафедры, файл никуда наружу не уходит.'),
