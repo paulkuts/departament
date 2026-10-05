@@ -32,7 +32,9 @@ var convertAllowedPrefixes = []string{"/files", "/conversions", "/health"}
 const convertUpstreamPrefix = "/api"
 
 func (h *ConvertHandler) RegisterRoutes(rg *gin.RouterGroup) {
-	rg.Any("/convert/*path", requireRoles(adminKey), h.handle)
+	// Роль не проверяем: любой вошедший сотрудник может конвертировать (решение
+	// Павла 05.10.2026). Ключ движка всё равно остаётся только на сервере.
+	rg.Any("/convert/*path", h.handle)
 }
 
 func (h *ConvertHandler) handle(c *gin.Context) {

@@ -276,6 +276,10 @@ class ApiClient {
     convertStatus()        { return this.request('/convert/status'); }
     deleteConvertFile(id)  { return this.request(`/convert/files/${id}`, { method: 'DELETE' }); }
 
+    // Результат конвертации живёт в истории конвертаций: через /convert/files/{id}
+    // он не удаляется (404), убирается только этой ручкой.
+    deleteConversion(id)   { return this.request(`/convert/conversions/${id}`, { method: 'DELETE' }); }
+
     convertFile(id, target) {
         return this.request('/convert/conversions', { method: 'POST', body: JSON.stringify({ id, output_format: target }) });
     }

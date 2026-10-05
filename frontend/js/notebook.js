@@ -1,5 +1,5 @@
-import {api} from './api.js?v=36';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=36';
+import {api} from './api.js?v=38';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,status,table,actions,sheet,details} from './dom.js?v=38';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -8,9 +8,7 @@ const canEditReference = () => me?.role === 'admin' || me?.role === 'staff';
 // Разделы, скрытые из меню сотрудника до доработки: доступ по прямой ссылке остаётся.
 const staffHiddenPages = ['reference'];
 // Разделы только для администраторов: скрыты из меню и закрыты по прямой ссылке.
-// «Конвертер» закрыт на время обкатки: регистрация на сайте открыта, а конвертация
-// занимает процессор домашнего сервера.
-const adminOnlyPages = ['inventory','convert'];
+const adminOnlyPages = ['inventory'];
 const roles = {admin:'Администратор',staff:'Сотрудник',teacher:'Преподаватель',student:'Студент'};
 const types = {equipment:'Оборудование',inventory:'Мебель и инвентарь',raw_material:'Химикаты и материалы',other:'Посуда и другое'};
 const keyStatuses = {available:'Свободен',issued:'Выдан',lost:'Утерян'};
@@ -82,7 +80,7 @@ async function route() {
     else if (page==='overview') node=await overview();
     else if (page==='equipment') node=id ? await inventoryDetail(id,page) : await inventoryList(page,q);
     else if (page==='inventory') node=admin() ? await inventoryRegistry(q) : forbidden();
-    else if (page==='convert') node=admin() ? await converter() : forbidden();
+    else if (page==='convert') node=await converter();
     else if (page==='keys') node=id ? await keyDetail(id) : await keyList(q);
     else if (page==='articles') node=id ? await articleDetail(id) : await articleList(q);
     else if (page==='events') node=await events(q);
@@ -397,6 +395,7 @@ async function converter() {
   try { cfg = await api.convertStatus(); } catch { /* про недоступность скажем при первой попытке */ }
   const limit = cfg.max_file_size || 50*1024*1024;
   const board = el('div',{class:'convert-board'});
+  const made = []; // id результатов: их удаление идёт через историю конвертаций
   const input = el('input',{type:'file',class:'drop-input','aria-label':'Выбрать файл',onchange:event=>{const node=event.currentTarget;const files=[...node.files];node.value='';send(files);}});
   const zone = el('label',{class:'drop-zone',ondragover:event=>{event.preventDefault();zone.classList.add('over');},ondragleave:()=>zone.classList.remove('over'),ondrop:event=>{event.preventDefault();zone.classList.remove('over');send([...event.dataTransfer.files]);}},
     input,el('span',{class:'drop-mark','aria-hidden':'true'},'⇄'),el('strong',{},'Перетащите файл сюда'),el('small',{},`или нажмите, чтобы выбрать · документы, таблицы, картинки, книги, аудио и видео · до ${sizeText(limit)}`));
@@ -432,9 +431,13 @@ async function converter() {
   }
 
   function dropFile(meta) {
-    const del = button('Убрать файл с сервера',async()=>{
-      try { await api.deleteConvertFile(meta.id); } catch (err) { toast(err.message); return; }
-      board.replaceChildren(); toast('Файл убран');
+    const del = button('Убрать файлы с сервера',async()=>{
+      try {
+        await api.deleteConvertFile(meta.id);
+        for (const id of made) await api.deleteConversion(id);
+      } catch (err) { toast(err.message); return; }
+      made.length = 0;
+      board.replaceChildren(); toast('Файлы убраны');
     },'icon');
     return el('div',{class:'convert-source'},el('small',{},`Файл: ${meta.original_filename || 'без имени'} · ${sizeText(meta.size_bytes)}`),del);
   }
@@ -444,6 +447,7 @@ async function converter() {
     try {
       const done = await api.convertFile(meta.id, target);
       if (!done || !done.id) throw new Error('движок не вернул файл');
+      made.push(done.id);
       const name = `${convertBase(meta.original_filename)}${done.extension || '.' + target}`;
       results.replaceChildren(el('div',{class:'convert-result'},
         el('div',{},el('strong',{},name),el('small',{},` · ${sizeText(done.size_bytes)}`)),
