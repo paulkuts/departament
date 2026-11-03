@@ -17,6 +17,7 @@ type EquipmentRepo interface {
 	GetByID(ctx context.Context, id int64) (*models.Inventory, error)
 	GetByInventoryNumber(ctx context.Context, invNumber string) (*models.Inventory, error)
 	List(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, int64, error)
+	NumberIndex(ctx context.Context) ([]models.InventoryNumberIndex, error)
 	ListExpiredVerification(ctx context.Context, limit, offset int64) ([]models.Inventory, int64, error)
 	Update(ctx context.Context, e *models.Inventory) error
 	Delete(ctx context.Context, id int64) error
@@ -54,16 +55,10 @@ func (s *EquipmentService) Create(ctx context.Context, e *models.Inventory) erro
 
 	s.log.Debug("equipment", zap.Any("equipment", e))
 
-	// Проверка уникальности инвентарного номера
-	if e.InventoryNumber != nil && *e.InventoryNumber != "" {
-		existing, err := s.repo.GetByInventoryNumber(ctx, *e.InventoryNumber)
-		if err != nil {
-			return fmt.Errorf("check inventory number: %w", err)
-		}
-		if existing != nil {
-			return fmt.Errorf("equipment with inventory number %q already exists", *e.InventoryNumber)
-		}
-	}
+	// Один номер может стоять у нескольких единиц: например, системный блок и
+	// монитор как комплект. Раньше здесь был жёсткий запрет на повтор, и такие
+	// пары заводили обходным путём (номер с ведущим нулём). Теперь повтор
+	// разрешён, а форма предупреждает и просит подтверждение.
 
 	if err := s.repo.Create(ctx, e); err != nil {
 		s.log.Error("failed to create equipment",
@@ -89,6 +84,9 @@ func (s *EquipmentService) GetByID(ctx context.Context, id int64) (*models.Inven
 	if e == nil {
 		return nil, fmt.Errorf("equipment %d not found", id)
 	}
+	items := []models.Inventory{*e}
+	s.fillSharedNumbers(ctx, items)
+	*e = items[0]
 	return e, nil
 }
 
@@ -109,10 +107,53 @@ func (s *EquipmentService) List(ctx context.Context, f models.InventoryFilter) (
 	if err != nil {
 		return models.ListInventory{}, fmt.Errorf("list equipment: %w", err)
 	}
+	s.fillSharedNumbers(ctx, items)
 	return models.ListInventory{
 		PaginatedMetadata: models.MakePaginatedMetadata(f.Paginated.Limit, f.Paginated.Offset, total),
 		Inventory:         items,
 	}, nil
+}
+
+// fillSharedNumbers проставляет объектам счётчик «сколько единиц с этим номером»
+// и до трёх соседей. Номер сравнивается в каноническом виде: «00101061212»
+// и «101061212» — один и тот же номер, пробелы и дефисы не считаются.
+// Ошибка не валит список: без подсказки реестр остаётся рабочим.
+func (s *EquipmentService) fillSharedNumbers(ctx context.Context, items []models.Inventory) {
+	if len(items) == 0 {
+		return
+	}
+	index, err := s.repo.NumberIndex(ctx)
+	if err != nil {
+		s.log.Warn("failed to build inventory number index", zap.Error(err))
+		return
+	}
+	groups := make(map[string][]models.InventoryNumberIndex, len(index))
+	for _, row := range index {
+		if row.InventoryNumber == nil {
+			continue
+		}
+		key := models.CanonicalInventoryNumber(*row.InventoryNumber)
+		if key == "" {
+			continue
+		}
+		groups[key] = append(groups[key], row)
+	}
+	for i := range items {
+		if items[i].InventoryNumber == nil {
+			continue
+		}
+		group := groups[models.CanonicalInventoryNumber(*items[i].InventoryNumber)]
+		if len(group) < 2 {
+			continue
+		}
+		items[i].NumberSharedCount = len(group)
+		for _, row := range group {
+			if row.ID == items[i].ID || len(items[i].SharedWith) >= 3 {
+				continue
+			}
+			items[i].SharedWith = append(items[i].SharedWith, models.SharedNumber{ID: row.ID, Name: row.Name, Location: row.Location})
+		}
+	}
 }
 
 // ListExpiredVerification возвращает оборудование с просроченной поверкой
@@ -136,16 +177,7 @@ func (s *EquipmentService) Update(ctx context.Context, e *models.Inventory) erro
 		return errors.New("equipment name is required")
 	}
 
-	// Проверка уникальности инвентарного номера (если изменился)
-	if e.InventoryNumber != nil && *e.InventoryNumber != "" {
-		existing, err := s.repo.GetByInventoryNumber(ctx, *e.InventoryNumber)
-		if err != nil {
-			return fmt.Errorf("check inventory number: %w", err)
-		}
-		if existing != nil && existing.ID != e.ID {
-			return fmt.Errorf("equipment with inventory number %q already exists", *e.InventoryNumber)
-		}
-	}
+	// Повтор номера разрешён и здесь — см. комментарий в Create.
 
 	if err := s.repo.Update(ctx, e); err != nil {
 		s.log.Error("failed to update equipment",

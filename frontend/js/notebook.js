@@ -28,7 +28,14 @@ const numText = value => (value === null || value === undefined || value === '')
 const sizeText = bytes => {const b=Number(bytes)||0;if(b<1024)return `${b} Б`;if(b<1024*1024)return `${Math.round(b/1024)} КБ`;return `${(b/1024/1024).toFixed(1)} МБ`;};
 const hintText = x => [x.name, x.quantity === null || x.quantity === undefined ? (x.unit || '') : `${numText(x.quantity)}${x.unit ? ' ' + x.unit : ''}`].filter(Boolean).join(' · ');
 const canonicalNumber = value => {const n=String(value||'').toUpperCase().replace(/[^0-9A-ZА-ЯЁ/]/g,'');return n?(n.replace(/^0+/,'')||'0'):''};
-const inventoryNumberMarks = x => (x.no_number_on_item||x.not_in_registry)?el('div',{class:'actions'},x.no_number_on_item?status('номера на приборе нет','warn'):null,x.not_in_registry?status('нет в таблице кафедры','warn'):null):null;
+// Пометки объекта: флаги и «общий номер». Общий номер — ссылка на поиск по этому номеру.
+const inventoryNumberMarks = x => {
+  const marks=[];
+  if(x.no_number_on_item)marks.push(status('номера на приборе нет','warn'));
+  if(x.not_in_registry)marks.push(status('нет в таблице кафедры','warn'));
+  if((x.number_shared_count||0)>1)marks.push(link(`№ общий · ${x.number_shared_count}`,`#/equipment?search=${encodeURIComponent(x.inventory_number||'')}`,'record-link'));
+  return marks.length?el('div',{class:'marks'},...marks):null;
+};
 const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
 const remove = (title, name, fn) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); route();});
 function paint(node, token) { if (token === revision) content.replaceChildren(node); }
@@ -191,7 +198,7 @@ async function inventoryList(page,q) {
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table(['Объект','Категория','Инв. №','Расположение','Следующая поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,el('div',{},x.inventory_number||'—',inventoryNumberMarks(x)),x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
+    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
@@ -559,6 +566,10 @@ async function inventoryForm(item,page='equipment') {
   const flagField=input('not_in_registry','Нет в таблице',x.not_in_registry,{type:'checkbox'});
   const flagInput=flagField.querySelector('input');
   let flagTouched=false;
+  // Один номер может быть у нескольких единиц (комплект). Не блокируем сохранение,
+  // но показываем, у кого этот номер уже стоит, и просим подтвердить.
+  let sharedConfirmedFor='';
+  const sameNumberObjects=async number=>{const key=canonicalNumber(number);const found=await api.getInventory({search:number,limit:100}).then(r=>r.inventory||[]).catch(()=>[]);return found.filter(v=>v.id!==x.id&&canonicalNumber(v.inventory_number)===key);};
   const syncFlag=()=>{if(flagTouched||!registry.length)return;const value=numberInput.value.trim();flagInput.checked=value!==''&&!known.has(canonicalNumber(value));};
   numberInput.addEventListener('input',syncFlag);
   flagInput.addEventListener('change',()=>{flagTouched=true;});
@@ -570,7 +581,19 @@ async function inventoryForm(item,page='equipment') {
     select('responsible_id','Ответственный',x.responsible_id||'',[['','Не назначен'],...people.map(p=>[p.id,p.full_name])]),input('documentation','Документация (ссылка или текст)',x.documentation),
     el('div',{class:'form-grid'},input('last_verification_date','Последняя поверка',x.last_verification_date?.slice(0,10),{type:'date'}),input('next_verification_date','Следующая поверка',x.next_verification_date?.slice(0,10),{type:'date'})),
     input('status','Доступно для использования',x.status,{type:'checkbox'}),input('unavailable_reason','Причина недоступности',x.unavailable_reason)
-  ],'Сохранить',async data=>{const payload={...nullable(data),status:data.status==='on',unavailable_reason:data.status==='on'?null:data.unavailable_reason||null,no_number_on_item:data.no_number_on_item==='on',not_in_registry:(flagTouched||registry.length)?flagInput.checked:null};if(item)await api.updateInventory(x.id,payload);else await api.createInventory(payload);closeModal();toast('Объект сохранён');route();}));
+  ],'Сохранить',async(data,node)=>{const payload={...nullable(data),status:data.status==='on',unavailable_reason:data.status==='on'?null:data.unavailable_reason||null,no_number_on_item:data.no_number_on_item==='on',not_in_registry:(flagTouched||registry.length)?flagInput.checked:null};
+    const persist=async()=>{if(item)await api.updateInventory(x.id,payload);else await api.createInventory(payload);closeModal();toast('Объект сохранён');route();};
+    const number=(data.inventory_number||'').trim();
+    if(!number||sharedConfirmedFor===canonicalNumber(number))return persist();
+    const same=await sameNumberObjects(number);
+    if(!same.length)return persist();
+    const first=same[0];
+    const text=`Номер ${first.inventory_number||number} уже указан у «${first.name}»${first.location?` (каб. ${first.location})`:''}${same.length>1?` и ещё ${same.length-1}`:''}. Если это одна учётная единица на несколько приборов, подтвердите — сохраним как отдельную запись с тем же номером.`;
+    let block=node.querySelector('.shared-number-warning');
+    if(!block){block=el('div',{class:'notice shared-number-warning'},el('div',{},el('strong',{},'Такой номер уже есть'),el('p',{class:'prose'},text)),el('div',{class:'form-actions'},button('Это общий номер — сохранить',()=>{sharedConfirmedFor=canonicalNumber(number);node.requestSubmit();},'primary'),button('Отмена',()=>block.remove(),'quiet')));node.querySelector('.form-actions').before(block);}
+    else block.querySelector('p').textContent=text;
+    block.scrollIntoView?.({block:'nearest'});
+  }));
 }
 async function blobImage(url,alt,className='') {
   const res=await fetch(url,{headers:{Authorization:`Bearer ${api.accessToken}`},credentials:'same-origin'});

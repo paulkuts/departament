@@ -17,10 +17,30 @@ type Inventory struct {
 
 	NoNumberOnItem      bool       `json:"no_number_on_item" db:"no_number_on_item"`   // на приборе номера нет
 	NotInRegistry       bool       `json:"not_in_registry" db:"not_in_registry"`       // номера нет в таблице кафедры
+
+	// Общий номер: у нескольких объектов один и тот же канонический номер.
+	// Считается на чтении, в базе не хранится.
+	NumberSharedCount int            `json:"number_shared_count" db:"-"`
+	SharedWith        []SharedNumber `json:"shared_with,omitempty" db:"-"`
 	LastVerificationDate *time.Time `json:"last_verification_date,omitempty" db:"last_verification_date"`
 	NextVerificationDate *time.Time `json:"next_verification_date,omitempty" db:"next_verification_date"`
 	CreatedAt            time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt            time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// SharedNumber — другой объект с тем же инвентарным номером (до 3 в ответе)
+type SharedNumber struct {
+	ID       int64   `json:"id"`
+	Name     string  `json:"name"`
+	Location *string `json:"location,omitempty"`
+}
+
+// InventoryNumberIndex — плоский список номеров всех объектов: по нему ищутся общие номера
+type InventoryNumberIndex struct {
+	ID              int64   `db:"id"`
+	Name            string  `db:"name"`
+	Location        *string `db:"location"`
+	InventoryNumber *string `db:"inventory_number"`
 }
 
 // InventoryFilter — параметры фильтрации и пагинации для списка оборудования

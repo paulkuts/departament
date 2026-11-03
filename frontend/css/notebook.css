@@ -134,3 +134,7 @@ tbody tr:hover{background:#d7e6f4}
 .convert-warning{margin:0 0 4px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--accent,var(--ink));background:var(--white);color:var(--ink);font-size:13px;line-height:1.45}
 .convert-history .convert-chips{gap:6px}
 .convert-history .btn.navy{font-size:13px;padding:6px 10px}
+
+/* Пометки в реестре имущества: флаги и общий номер — столбиком, чтобы не растягивать строку */
+.marks{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.marks .record-link{font-size:12px;font-weight:600;white-space:nowrap}

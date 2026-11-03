@@ -25,6 +25,17 @@ func NewInventoryRepo(db *sqlx.DB, log *zap.Logger) *InventoryRepo {
 const inventoryColumns = `id, type, name, description, location, documentation, inventory_number,
 	responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date, created_at, updated_at`
 
+// NumberIndex возвращает номера всех объектов — по нему считается «общий номер».
+// Список маленький (сотни строк), поэтому отдельная колонка в базе не нужна.
+func (r *InventoryRepo) NumberIndex(ctx context.Context) ([]models.InventoryNumberIndex, error) {
+	var rows []models.InventoryNumberIndex
+	err := r.db.SelectContext(ctx, &rows, `SELECT id, name, location, inventory_number FROM inventory`)
+	if err != nil {
+		return nil, fmt.Errorf("inventory number index: %w", err)
+	}
+	return rows, nil
+}
+
 // Create создаёт единицу оборудования
 func (r *InventoryRepo) Create(ctx context.Context, e *models.Inventory) error {
 	e.NameNormalized = NormalizeName(e.Name)

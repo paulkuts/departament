@@ -168,6 +168,13 @@ type MessageResponse struct {
 
 // ========== Inventory ==========
 
+// SharedNumberResponse — другой объект с тем же инвентарным номером
+type SharedNumberResponse struct {
+	ID       int64   `json:"id"`
+	Name     string  `json:"name"`
+	Location *string `json:"location,omitempty"`
+}
+
 type CreateInventoryRequest struct {
 	Name                 string  `json:"name" binding:"required,min=1"`
 	Type                 string  `json:"type" binding:"required"`
@@ -211,6 +218,8 @@ type InventoryResponse struct {
 	ResponsibleID        *string `json:"responsible_id,omitempty"`
 	NoNumberOnItem       bool    `json:"no_number_on_item"`
 	NotInRegistry        bool    `json:"not_in_registry"`
+	NumberSharedCount    int     `json:"number_shared_count"`
+	SharedWith           []SharedNumberResponse `json:"shared_with,omitempty"`
 	Status               bool    `json:"status"`
 	UnavailableReason    *string `json:"unavailable_reason,omitempty"`
 	LastVerificationDate *string `json:"last_verification_date,omitempty"`
@@ -231,6 +240,7 @@ func ToInventoryResponse(e *models.Inventory) InventoryResponse {
 		ResponsibleID:     e.ResponsibleID,
 		NoNumberOnItem:    e.NoNumberOnItem,
 		NotInRegistry:     e.NotInRegistry,
+		NumberSharedCount: e.NumberSharedCount,
 		Status:            e.Status,
 		UnavailableReason: e.UnavailableReason,
 		CreatedAt:         e.CreatedAt.Format("2006-01-02 15:04:05"),
@@ -239,6 +249,9 @@ func ToInventoryResponse(e *models.Inventory) InventoryResponse {
 	if e.LastVerificationDate != nil {
 		s := e.LastVerificationDate.Format("2006-01-02")
 		resp.LastVerificationDate = &s
+	}
+	for _, n := range e.SharedWith {
+		resp.SharedWith = append(resp.SharedWith, SharedNumberResponse{ID: n.ID, Name: n.Name, Location: n.Location})
 	}
 	if e.NextVerificationDate != nil {
 		s := e.NextVerificationDate.Format("2006-01-02")
