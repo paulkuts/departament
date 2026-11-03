@@ -184,38 +184,6 @@ func (h *InventoryHandler) list(c *gin.Context) {
 		return
 	}
 
-	// ?group=1 — реестр строками-группами (общий номер и/или название)
-	if filter.Group {
-		resp := GroupedInventoryResponse{
-			PaginatedMetadata: data.PaginatedMetadata,
-			ObjectsTotal:      data.ObjectsTotal,
-			Groups:            make([]InventoryGroupResponse, 0, len(data.Groups)),
-		}
-		for _, g := range data.Groups {
-			group := InventoryGroupResponse{
-				Key:                g.Key,
-				Title:              g.Title,
-				InventoryNumber:    g.InventoryNumber,
-				HasNumbers:         g.HasNumbers,
-				NumbersDistinct:    g.NumbersDistinct,
-				Count:              g.Count,
-				Types:              g.Types,
-				Locations:          g.Locations,
-				NextVerifications:  g.NextVerifications,
-				AllAvailable:       g.AllAvailable,
-				NoNumberCount:      g.NoNumberCount,
-				NotInRegistryCount: g.NotInRegistryCount,
-				Members:            make([]InventoryResponse, 0, len(g.Members)),
-			}
-			for i := range g.Members {
-				group.Members = append(group.Members, ToInventoryResponse(&g.Members[i]))
-			}
-			resp.Groups = append(resp.Groups, group)
-		}
-		c.JSON(http.StatusOK, resp)
-		return
-	}
-
 	c.JSON(http.StatusOK, data)
 }
 

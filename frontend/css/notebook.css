@@ -138,35 +138,3 @@ tbody tr:hover{background:#d7e6f4}
 /* Пометки в реестре имущества: флаги и общий номер — столбиком, чтобы не растягивать строку */
 .marks{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
 .marks .record-link{font-size:12px;font-weight:600;white-space:nowrap}
-
-/* Реестр оборудования: строка-группа и мини-таблица единиц внутри.
-   Цвет группы задаётся её местом в таблице; внутри мини-таблицы чередования нет —
-   подстроки наследуют цвет своей группы. Названия во всех строках начинаются с одного
-   места: место под каретку зарезервировано отступом ячейки, поэтому при раскрытии
-   ничего не сдвигается. */
-.groups-table > table > tbody > tr > td{font-size:16px}
-.groups-table tbody tr{background:transparent}
-.groups-table tbody tr.group-row.alt,.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
-.groups-table tbody tr.group-row:hover,.groups-table tbody tr.group-row:hover+tr.group-body>td{background:#f8fbfd}
-.groups-table tbody tr>td:first-child{position:relative;padding-left:38px}
-.group-head{display:flex;align-items:center;gap:6px;min-width:0}
-.group-toggle{position:absolute;left:14px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--muted);cursor:pointer;padding:0;font-size:16px;line-height:1;transition:transform .15s}
-.group-toggle[aria-expanded="true"]{transform:translateY(-50%) rotate(90deg)}
-.group-title{border:0;background:transparent;padding:0;font:inherit;font-weight:650;color:inherit;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.group-title:hover{text-decoration:underline}
-.group-count{color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
-.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 38px;white-space:normal;box-shadow:inset 4px 0 0 #cddbe8}
-.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
-.groups-table .group-table{width:100%;border-collapse:collapse;table-layout:fixed}
-.groups-table .group-table td{font-size:15px;padding:9px 16px 9px 0;border-bottom:1px solid #e6ecf2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.groups-table .group-table td:first-child{padding-left:12px}
-.groups-table .group-table tr:last-child td{border-bottom:0}
-.groups-table .group-table tbody tr,.groups-table .group-table tbody tr:hover{background:transparent}
-.groups-table th:nth-child(1),.groups-table .group-table td:nth-child(1){width:26%}
-.groups-table th:nth-child(2),.groups-table .group-table td:nth-child(2){width:12%}
-.groups-table th:nth-child(3),.groups-table .group-table td:nth-child(3){width:11%}
-.groups-table th:nth-child(4),.groups-table .group-table td:nth-child(4){width:14%}
-.groups-table th:nth-child(5),.groups-table .group-table td:nth-child(5){width:12%}
-.groups-table th:nth-child(6),.groups-table .group-table td:nth-child(6){width:11%}
-.groups-table th:nth-child(7),.groups-table .group-table td:nth-child(7){width:14%}
-.group-body[hidden]{display:none}

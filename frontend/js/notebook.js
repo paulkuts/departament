@@ -37,7 +37,7 @@ const inventoryNumberMarks = x => {
   return marks.length?el('div',{class:'marks'},...marks):null;
 };
 const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
-const remove = (title, name, fn, next) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); next?navTo(next):route();});
+const remove = (title, name, fn) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); route();});
 function paint(node, token) { if (token === revision) content.replaceChildren(node); }
 function shell(page) {
   const rail = document.getElementById('rail');
@@ -190,46 +190,15 @@ async function overview() {
   const side=el('div',{class:'overview-side'},sheet(sh('Публикации','Научная работа',link('Все','#/articles','btn quiet')),articles?.articles?.length?el('ul',{class:'journal-list'},articles.articles.map(x=>el('li',{},link(x.title,`#/articles/${x.id}`),el('small',{},articleStatuses[x.status]||x.status)))):body(el('p',{},'Публикации ещё не добавлены.'))),sheet(sh('Ключи','Текущий статус'),el('div',{class:'summary-line'},el('div',{},el('strong',{},keys?.filter(k=>k.status==='available').length ?? '—'),el('span',{},'свободно')),el('div',{},el('strong',{},keys?.filter(k=>k.status==='issued').length ?? '—'),el('span',{},'выдано'))),body(link('Открыть журнал ключей','#/keys'))));
   root.append(el('div',{class:'overview-grid'},el('div',{},main,tasks),side));return root;
 }
-// Раскрытые группы реестра. Живёт между перерисовками, чтобы живой поиск и возврат
-// на страницу не схлопывали группу.
-const expandedGroups = new Set();
 async function inventoryList(page,q) {
   const activeType=q.get('type')||'';
-  const expired=q.get('expired');
   const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),type:activeType,status:q.get('status')};
-  // Реестр оборудования — строками-группами: общий номер и/или общее название.
-  const data=expired?await api.getExpiredVerification(20,params.offset):await api.getInventory({...params,group:1});
+  const data=q.get('expired') ? await api.getExpiredVerification(20,params.offset) : await api.getInventory(params);
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
-  const cells=x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location||'—',verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')];
-  const groups=data.groups||[];
-  // Если в выдаче ровно одна группа — показываем её сразу раскрытой.
-  if(groups.length===1&&groups[0].count>1)expandedGroups.add(groups[0].key);
-  const rows=groups.length?groups.map((g,index)=>{
-    if(g.count===1)return cells(g.members[0]);
-    const open=expandedGroups.has(g.key);
-    // Пустые списки сервер может отдать как null — приводим к массивам.
-    const groupTypes=g.types||[], groupLocations=g.locations||[], groupVerifications=g.next_verifications||[];
-    const head=el('div',{class:'group-head'},el('button',{class:'group-toggle',type:'button','aria-expanded':String(open),'aria-label':`${open?'Свернуть':'Развернуть'} группу`},'›'),el('button',{class:'group-title',type:'button'},g.title),el('span',{class:'group-count'},`· ${g.count} шт`));
-    const inner=el('table',{class:'group-table'},el('tbody',{},g.members.map(m=>el('tr',{},cells(m).map(c=>el('td',{},c??'—'))))));
-    return {
-      key:g.key,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
-      cells:[head,
-        groupTypes.length===1?(types[groupTypes[0]]||groupTypes[0]):'разные',
-        g.inventory_number||(g.has_numbers?'№ у каждой':'—'),
-        status('Группа'),
-        groupLocations.length===1?groupLocations[0]:(groupLocations.length?`${groupLocations.length} каб.`:'—'),
-        groupVerifications.length===0?'—':(groupVerifications.length===1?verification(groupVerifications[0]):'разные даты'),
-        g.all_available?status('Доступно','good'):status('есть недоступные','warn')],
-      expand:inner,open,
-      onToggle:o=>{o?expandedGroups.add(g.key):expandedGroups.delete(g.key);}
-    };
-  }):(data.inventory||[]).map(cells);
-  const foot=groups.length?`${data.paginated_metadata?.total ?? 0} групп · ${data.objects_total ?? 0} объектов`:`${data.paginated_metadata?.total ?? 0} объектов`;
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
-    expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':''),
-    pager(page,q,data.paginated_metadata),el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
+    q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
+    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
@@ -787,7 +756,7 @@ async function inventoryDetail(id,page) {
   root.append(await photoSection(photos,id,x));
   root.append(sheet(sh('Комментарии',`${comments.length} записей`),el('ul',{class:'journal-list'},comments.map(c=>el('li',{},el('strong',{},c.author||'Сотрудник'),el('small',{},date(c.created_at,true)),el('p',{class:'prose'},c.body)))),body(form([input('body','Добавить комментарий','',{type:'textarea',required:true,maxlength:5000})],'Отправить',async data=>{await request(`/inventory/${id}/comments`,'POST',data);route();}))));
   if(loans.length)root.append(sheet(sh('История выдачи'),table(['Получатель','Выдано','Возвращено','Комментарий'],loans.map(l=>[l.borrower,date(l.issued_at,true),l.returned_at?date(l.returned_at,true):status('На руках','warn'),l.comment]))));
-  if(admin())root.append(button('Удалить объект',()=>remove('Удалить объект',x.name,()=>api.deleteInventory(id),page),'danger'));return root;
+  if(admin())root.append(button('Удалить объект',()=>remove('Удалить объект',x.name,()=>api.deleteInventory(id)),'danger'));return root;
 }
 function upload(label,save) {return el('label',{class:'field'},el('span',{},label),el('input',{type:'file',accept:'image/jpeg,image/png,image/webp',onchange:async e=>{const node=e.currentTarget,file=node.files[0];if(!file)return;if(file.size>10*1024*1024){toast('Максимальный размер — 10 МБ');return;}node.disabled=true;try{await save(file);toast('Файл загружен');route();}catch(err){toast(err.message);}finally{node.disabled=false;node.value='';}}}));}
 async function loanForm(x) {

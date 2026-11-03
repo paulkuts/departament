@@ -186,7 +186,6 @@ class ApiClient {
         if (params.inventory) q.append('inventory', params.inventory);
         if (params.status)    q.append('status', params.status);
         if (params.type)      q.append('type', params.type);
-        if (params.group)     q.append('group', '1');
         const qs = q.toString();
         return this.request(`/inventory${qs ? '?' + qs : ''}`);
     }
