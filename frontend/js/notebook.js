@@ -216,16 +216,18 @@ async function inventoryList(page,q) {
   const rows=groups.length?groups.map((g,index)=>{
     if(g.count===1)return cells(g.members[0]);
     const open=expandedGroups.has(g.key);
+    // Пустые списки сервер может отдать как null — приводим к массивам.
+    const groupTypes=g.types||[], groupLocations=g.locations||[], groupVerifications=g.next_verifications||[];
     const head=el('div',{class:'group-head'},el('button',{class:'group-toggle',type:'button','aria-expanded':String(open),'aria-label':`${open?'Свернуть':'Развернуть'} группу`},open?'▾':'▸'),link(g.title,`#/${page}/${g.members[0].id}`,'record-link'),el('span',{class:'group-count'},`· ${g.count} шт`));
     const inner=el('table',{class:'group-table'},el('tbody',{},g.members.map(m=>el('tr',{},cells(m).map(c=>el('td',{},c??'—'))))));
     return {
       key:g.key,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
       cells:[head,
-        g.types.length===1?(types[g.types[0]]||g.types[0]):'разные',
+        groupTypes.length===1?(types[groupTypes[0]]||groupTypes[0]):'разные',
         g.inventory_number||(g.has_numbers?'№ у каждой':'—'),
         groupMarks(g),
-        g.locations.length===1?g.locations[0]:(g.locations.length?`${g.locations.length} каб.`:'—'),
-        g.next_verifications.length===0?'—':(g.next_verifications.length===1?verification(g.next_verifications[0]):'разные даты'),
+        groupLocations.length===1?groupLocations[0]:(groupLocations.length?`${groupLocations.length} каб.`:'—'),
+        groupVerifications.length===0?'—':(groupVerifications.length===1?verification(groupVerifications[0]):'разные даты'),
         g.all_available?status('Доступно','good'):status('есть недоступные','warn')],
       expand:inner,open,
       onToggle:o=>{o?expandedGroups.add(g.key):expandedGroups.delete(g.key);}

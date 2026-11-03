@@ -297,6 +297,10 @@ func buildInventoryGroup(members []models.Inventory) models.InventoryGroup {
 		Count:        len(members),
 		AllAvailable: true,
 		Members:      members,
+		// Пустые срезы, а не nil: в JSON это [], иначе фронт получает null.
+		Types:             make([]string, 0, 4),
+		Locations:         make([]string, 0, 4),
+		NextVerifications: make([]string, 0, 2),
 	}
 
 	types := make(map[string]bool)
