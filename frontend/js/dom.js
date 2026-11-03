@@ -116,14 +116,15 @@ export function table(headers, rows, emptyText = 'Пока нет записей
       // от группы (чередования внутри нет), стрелка только переключает видимость.
       const body = el('tr', {class:'group-body' + (row.alt ? ' alt' : '')}, el('td', {colspan:String(headers.length)}, row.expand));
       body.hidden = !row.open;
+      const toggles = line.querySelectorAll('.group-toggle, .group-title');
       const toggle = line.querySelector('.group-toggle');
-      if (toggle) toggle.addEventListener('click', () => {
+      if (toggles.length) toggles.forEach(btn => btn.addEventListener('click', () => {
         body.hidden = !body.hidden;
         const open = !body.hidden;
         toggle.textContent = open ? '▾' : '▸';
         toggle.setAttribute('aria-expanded', String(open));
         row.onToggle?.(open);
-      });
+      }));
       return [line, body];
     }
     return line;

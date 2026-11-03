@@ -37,7 +37,7 @@ const inventoryNumberMarks = x => {
   return marks.length?el('div',{class:'marks'},...marks):null;
 };
 const select = (name,label,value,choices,options={}) => field(name,label,value,{choices,...options});
-const remove = (title, name, fn) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); route();});
+const remove = (title, name, fn, next) => confirmAction(title,`«${name}» будет удалено. Это действие нельзя отменить.`, async () => {await fn(); toast('Запись удалена'); next?navTo(next):route();});
 function paint(node, token) { if (token === revision) content.replaceChildren(node); }
 function shell(page) {
   const rail = document.getElementById('rail');
@@ -193,15 +193,6 @@ async function overview() {
 // Раскрытые группы реестра. Живёт между перерисовками, чтобы живой поиск и возврат
 // на страницу не схлопывали группу.
 const expandedGroups = new Set();
-// Сводные пометки группы: сколько единиц без номера на приборе, сколько нет в описи,
-// общий номер. Общий номер — ссылка на поиск по нему.
-const groupMarks = g => {
-  const marks=[];
-  if(g.no_number_count)marks.push(status(`номера на приборе нет · ${g.no_number_count}`,'warn'));
-  if(g.not_in_registry_count)marks.push(status(`нет в таблице · ${g.not_in_registry_count}`,'warn'));
-  if(g.count>1&&g.inventory_number)marks.push(link(`№ общий · ${g.count}`,`#/equipment?search=${encodeURIComponent(g.inventory_number)}`,'record-link'));
-  return marks.length?el('div',{class:'marks'},...marks):'—';
-};
 async function inventoryList(page,q) {
   const activeType=q.get('type')||'';
   const expired=q.get('expired');
@@ -218,14 +209,14 @@ async function inventoryList(page,q) {
     const open=expandedGroups.has(g.key);
     // Пустые списки сервер может отдать как null — приводим к массивам.
     const groupTypes=g.types||[], groupLocations=g.locations||[], groupVerifications=g.next_verifications||[];
-    const head=el('div',{class:'group-head'},el('button',{class:'group-toggle',type:'button','aria-expanded':String(open),'aria-label':`${open?'Свернуть':'Развернуть'} группу`},open?'▾':'▸'),link(g.title,`#/${page}/${g.members[0].id}`,'record-link'),el('span',{class:'group-count'},`· ${g.count} шт`));
+    const head=el('div',{class:'group-head'},el('button',{class:'group-toggle',type:'button','aria-expanded':String(open),'aria-label':`${open?'Свернуть':'Развернуть'} группу`},'›'),el('button',{class:'group-title',type:'button'},g.title),el('span',{class:'group-count'},`· ${g.count} шт`));
     const inner=el('table',{class:'group-table'},el('tbody',{},g.members.map(m=>el('tr',{},cells(m).map(c=>el('td',{},c??'—'))))));
     return {
       key:g.key,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
       cells:[head,
         groupTypes.length===1?(types[groupTypes[0]]||groupTypes[0]):'разные',
         g.inventory_number||(g.has_numbers?'№ у каждой':'—'),
-        groupMarks(g),
+        status('Группа'),
         groupLocations.length===1?groupLocations[0]:(groupLocations.length?`${groupLocations.length} каб.`:'—'),
         groupVerifications.length===0?'—':(groupVerifications.length===1?verification(groupVerifications[0]):'разные даты'),
         g.all_available?status('Доступно','good'):status('есть недоступные','warn')],
@@ -796,7 +787,7 @@ async function inventoryDetail(id,page) {
   root.append(await photoSection(photos,id,x));
   root.append(sheet(sh('Комментарии',`${comments.length} записей`),el('ul',{class:'journal-list'},comments.map(c=>el('li',{},el('strong',{},c.author||'Сотрудник'),el('small',{},date(c.created_at,true)),el('p',{class:'prose'},c.body)))),body(form([input('body','Добавить комментарий','',{type:'textarea',required:true,maxlength:5000})],'Отправить',async data=>{await request(`/inventory/${id}/comments`,'POST',data);route();}))));
   if(loans.length)root.append(sheet(sh('История выдачи'),table(['Получатель','Выдано','Возвращено','Комментарий'],loans.map(l=>[l.borrower,date(l.issued_at,true),l.returned_at?date(l.returned_at,true):status('На руках','warn'),l.comment]))));
-  if(admin())root.append(button('Удалить объект',()=>remove('Удалить объект',x.name,()=>api.deleteInventory(id)),'danger'));return root;
+  if(admin())root.append(button('Удалить объект',()=>remove('Удалить объект',x.name,()=>api.deleteInventory(id),page),'danger'));return root;
 }
 function upload(label,save) {return el('label',{class:'field'},el('span',{},label),el('input',{type:'file',accept:'image/jpeg,image/png,image/webp',onchange:async e=>{const node=e.currentTarget,file=node.files[0];if(!file)return;if(file.size>10*1024*1024){toast('Максимальный размер — 10 МБ');return;}node.disabled=true;try{await save(file);toast('Файл загружен');route();}catch(err){toast(err.message);}finally{node.disabled=false;node.value='';}}}));}
 async function loanForm(x) {
