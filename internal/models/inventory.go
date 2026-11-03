@@ -49,10 +49,31 @@ type InventoryFilter struct {
 	Search          *string `form:"search"`     // ✅ ?search=
 	InventoryNumber *string `form:"inventory"`  // ✅ ?inventory=
 	Status          *bool   `form:"-"`          // ✅ игнорируем (парсится вручную)
+	Group           bool    `form:"group"`      // ✅ ?group=1 — вернуть группы, а не плоский список
 	Paginated       Paginated
+}
+
+// InventoryGroup — строка реестра: несколько единиц с общим номером и/или названием.
+// Считается на чтении, в базе не хранится.
+type InventoryGroup struct {
+	Key                string
+	Title              string // название самой ранней записи группы
+	InventoryNumber    *string // номер, если он общий у всех единиц; иначе nil
+	HasNumbers         bool    // хотя бы у кого-то есть номер
+	NumbersDistinct    bool    // у единиц разные номера
+	Count              int
+	Types              []string
+	Locations          []string
+	NextVerifications  []string // уникальные даты следующей поверки (YYYY-MM-DD)
+	AllAvailable       bool
+	NoNumberCount      int
+	NotInRegistryCount int
+	Members            []Inventory
 }
 
 type ListInventory struct {
 	PaginatedMetadata PaginatedMetadata `json:"paginated_metadata"`
 	Inventory         []Inventory       `json:"inventory"`
+	Groups            []InventoryGroup  `json:"-"`
+	ObjectsTotal      int64             `json:"-"`
 }

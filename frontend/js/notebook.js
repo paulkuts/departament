@@ -190,15 +190,53 @@ async function overview() {
   const side=el('div',{class:'overview-side'},sheet(sh('Публикации','Научная работа',link('Все','#/articles','btn quiet')),articles?.articles?.length?el('ul',{class:'journal-list'},articles.articles.map(x=>el('li',{},link(x.title,`#/articles/${x.id}`),el('small',{},articleStatuses[x.status]||x.status)))):body(el('p',{},'Публикации ещё не добавлены.'))),sheet(sh('Ключи','Текущий статус'),el('div',{class:'summary-line'},el('div',{},el('strong',{},keys?.filter(k=>k.status==='available').length ?? '—'),el('span',{},'свободно')),el('div',{},el('strong',{},keys?.filter(k=>k.status==='issued').length ?? '—'),el('span',{},'выдано'))),body(link('Открыть журнал ключей','#/keys'))));
   root.append(el('div',{class:'overview-grid'},el('div',{},main,tasks),side));return root;
 }
+// Раскрытые группы реестра. Живёт между перерисовками, чтобы живой поиск и возврат
+// на страницу не схлопывали группу.
+const expandedGroups = new Set();
+// Сводные пометки группы: сколько единиц без номера на приборе, сколько нет в описи,
+// общий номер. Общий номер — ссылка на поиск по нему.
+const groupMarks = g => {
+  const marks=[];
+  if(g.no_number_count)marks.push(status(`номера на приборе нет · ${g.no_number_count}`,'warn'));
+  if(g.not_in_registry_count)marks.push(status(`нет в таблице · ${g.not_in_registry_count}`,'warn'));
+  if(g.count>1&&g.inventory_number)marks.push(link(`№ общий · ${g.count}`,`#/equipment?search=${encodeURIComponent(g.inventory_number)}`,'record-link'));
+  return marks.length?el('div',{class:'marks'},...marks):'—';
+};
 async function inventoryList(page,q) {
   const activeType=q.get('type')||'';
+  const expired=q.get('expired');
   const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),type:activeType,status:q.get('status')};
-  const data=q.get('expired') ? await api.getExpiredVerification(20,params.offset) : await api.getInventory(params);
+  // Реестр оборудования — строками-группами: общий номер и/или общее название.
+  const data=expired?await api.getExpiredVerification(20,params.offset):await api.getInventory({...params,group:1});
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
+  const cells=x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location||'—',verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')];
+  const groups=data.groups||[];
+  // Если в выдаче ровно одна группа — показываем её сразу раскрытой.
+  if(groups.length===1&&groups[0].count>1)expandedGroups.add(groups[0].key);
+  const rows=groups.length?groups.map((g,index)=>{
+    if(g.count===1)return cells(g.members[0]);
+    const open=expandedGroups.has(g.key);
+    const head=el('div',{class:'group-head'},el('button',{class:'group-toggle',type:'button','aria-expanded':String(open),'aria-label':`${open?'Свернуть':'Развернуть'} группу`},open?'▾':'▸'),link(g.title,`#/${page}/${g.members[0].id}`,'record-link'),el('span',{class:'group-count'},`· ${g.count} шт`));
+    const inner=el('table',{class:'group-table'},el('tbody',{},g.members.map(m=>el('tr',{},cells(m).map(c=>el('td',{},c??'—'))))));
+    return {
+      key:g.key,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
+      cells:[head,
+        g.types.length===1?(types[g.types[0]]||g.types[0]):'разные',
+        g.inventory_number||(g.has_numbers?'№ у каждой':'—'),
+        groupMarks(g),
+        g.locations.length===1?g.locations[0]:(g.locations.length?`${g.locations.length} каб.`:'—'),
+        g.next_verifications.length===0?'—':(g.next_verifications.length===1?verification(g.next_verifications[0]):'разные даты'),
+        g.all_available?status('Доступно','good'):status('есть недоступные','warn')],
+      expand:inner,open,
+      onToggle:o=>{o?expandedGroups.add(g.key):expandedGroups.delete(g.key);}
+    };
+  }):(data.inventory||[]).map(cells);
+  const foot=groups.length?`${data.paginated_metadata?.total ?? 0} групп · ${data.objects_total ?? 0} объектов`:`${data.paginated_metadata?.total ?? 0} объектов`;
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
-    q.get('expired')?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],(data.inventory||[]).map(x=>[link(x.name,`#/${page}/${x.id}`,'record-link'),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location,verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')])),pager(page,q,data.paginated_metadata)),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
+    expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
+    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':''),
+    pager(page,q,data.paginated_metadata),el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.

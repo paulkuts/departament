@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"mitm-departament/internal/models"
 
 	"go.uber.org/zap"
@@ -17,6 +18,7 @@ type EquipmentRepo interface {
 	GetByID(ctx context.Context, id int64) (*models.Inventory, error)
 	GetByInventoryNumber(ctx context.Context, invNumber string) (*models.Inventory, error)
 	List(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, int64, error)
+	ListAll(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, error)
 	NumberIndex(ctx context.Context) ([]models.InventoryNumberIndex, error)
 	ListExpiredVerification(ctx context.Context, limit, offset int64) ([]models.Inventory, int64, error)
 	Update(ctx context.Context, e *models.Inventory) error
@@ -103,6 +105,11 @@ func (s *EquipmentService) List(ctx context.Context, f models.InventoryFilter) (
 		f.Paginated.Offset = 0
 	}
 
+	// group=1 — реестр строками-группами: общий номер и/или общее название.
+	if f.Group {
+		return s.listGroups(ctx, f)
+	}
+
 	items, total, err := s.repo.List(ctx, f)
 	if err != nil {
 		return models.ListInventory{}, fmt.Errorf("list equipment: %w", err)
@@ -154,6 +161,196 @@ func (s *EquipmentService) fillSharedNumbers(ctx context.Context, items []models
 			items[i].SharedWith = append(items[i].SharedWith, models.SharedNumber{ID: row.ID, Name: row.Name, Location: row.Location})
 		}
 	}
+}
+
+// listGroups возвращает страницу групп. Фильтр применяется к единицам, но группу
+// отдаём целиком: иначе счётчик и раскрытие врали бы, а Павел просил видеть всю группу.
+func (s *EquipmentService) listGroups(ctx context.Context, f models.InventoryFilter) (models.ListInventory, error) {
+	filtered, err := s.repo.ListAll(ctx, f)
+	if err != nil {
+		return models.ListInventory{}, fmt.Errorf("list equipment: %w", err)
+	}
+	pass := make(map[int64]bool, len(filtered))
+	for _, it := range filtered {
+		pass[it.ID] = true
+	}
+
+	all, err := s.repo.ListAll(ctx, models.InventoryFilter{})
+	if err != nil {
+		return models.ListInventory{}, fmt.Errorf("list all equipment: %w", err)
+	}
+
+	groups := BuildInventoryGroups(all)
+	selected := make([]models.InventoryGroup, 0, len(groups))
+	var objectsTotal int64
+	for _, g := range groups {
+		matched := false
+		for _, m := range g.Members {
+			if pass[m.ID] {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			selected = append(selected, g)
+			objectsTotal += int64(len(g.Members))
+		}
+	}
+
+	limit, offset := f.Paginated.Limit, f.Paginated.Offset
+	start := offset
+	if start > int64(len(selected)) {
+		start = int64(len(selected))
+	}
+	end := start + limit
+	if end > int64(len(selected)) {
+		end = int64(len(selected))
+	}
+
+	return models.ListInventory{
+		PaginatedMetadata: models.MakePaginatedMetadata(limit, offset, int64(len(selected))),
+		Groups:            selected[start:end],
+		ObjectsTotal:      objectsTotal,
+	}, nil
+}
+
+// BuildInventoryGroups собирает объекты в группы: общий канонический номер и/или
+// общее нормализованное название. Связь транзитивная: A делит номер с B, B делит
+// название с C — все трое в одной группе. Порядок — по id первой записи группы.
+func BuildInventoryGroups(items []models.Inventory) []models.InventoryGroup {
+	if len(items) == 0 {
+		return nil
+	}
+	parent := make([]int, len(items))
+	for i := range parent {
+		parent[i] = i
+	}
+	var find func(int) int
+	find = func(x int) int {
+		for parent[x] != x {
+			parent[x] = parent[parent[x]]
+			x = parent[x]
+		}
+		return x
+	}
+	union := func(a, b int) {
+		ra, rb := find(a), find(b)
+		if ra == rb {
+			return
+		}
+		if ra > rb {
+			ra, rb = rb, ra
+		}
+		parent[rb] = ra
+	}
+
+	byNumber := make(map[string]int, len(items))
+	byName := make(map[string]int, len(items))
+	for i, it := range items {
+		if it.InventoryNumber != nil {
+			if key := models.CanonicalInventoryNumber(*it.InventoryNumber); key != "" {
+				if j, ok := byNumber[key]; ok {
+					union(i, j)
+				} else {
+					byNumber[key] = i
+				}
+			}
+		}
+		if it.NameNormalized != "" {
+			if j, ok := byName[it.NameNormalized]; ok {
+				union(i, j)
+			} else {
+				byName[it.NameNormalized] = i
+			}
+		}
+	}
+
+	byRoot := make(map[int][]models.Inventory, len(items))
+	order := make([]int, 0, len(items))
+	for i := range items {
+		root := find(i)
+		if _, ok := byRoot[root]; !ok {
+			order = append(order, root)
+		}
+		byRoot[root] = append(byRoot[root], items[i])
+	}
+	sort.Slice(order, func(a, b int) bool {
+		return byRoot[order[a]][0].ID < byRoot[order[b]][0].ID
+	})
+
+	groups := make([]models.InventoryGroup, 0, len(order))
+	for _, root := range order {
+		members := byRoot[root]
+		sort.Slice(members, func(a, b int) bool { return members[a].ID < members[b].ID })
+		groups = append(groups, buildInventoryGroup(members))
+	}
+	return groups
+}
+
+// buildInventoryGroup собирает сводку по группе: название первой записи, общий
+// номер (если он один у всех), категории, кабинеты, даты поверки, пометки.
+func buildInventoryGroup(members []models.Inventory) models.InventoryGroup {
+	first := members[0]
+	g := models.InventoryGroup{
+		Key:          fmt.Sprintf("g%d", first.ID),
+		Title:        first.Name,
+		Count:        len(members),
+		AllAvailable: true,
+		Members:      members,
+	}
+
+	types := make(map[string]bool)
+	locations := make(map[string]bool)
+	dates := make(map[string]bool)
+	numbers := make(map[string]bool)
+	withNumber := 0
+	for _, m := range members {
+		types[m.Type] = true
+		if m.Location != nil && *m.Location != "" {
+			locations[*m.Location] = true
+		}
+		if m.NextVerificationDate != nil {
+			dates[m.NextVerificationDate.Format("2006-01-02")] = true
+		}
+		if !m.Status {
+			g.AllAvailable = false
+		}
+		if m.NoNumberOnItem {
+			g.NoNumberCount++
+		}
+		if m.NotInRegistry {
+			g.NotInRegistryCount++
+		}
+		if m.InventoryNumber != nil {
+			if key := models.CanonicalInventoryNumber(*m.InventoryNumber); key != "" {
+				numbers[key] = true
+				withNumber++
+			}
+		}
+	}
+
+	for k := range types {
+		g.Types = append(g.Types, k)
+	}
+	sort.Strings(g.Types)
+	for k := range locations {
+		g.Locations = append(g.Locations, k)
+	}
+	sort.Strings(g.Locations)
+	for k := range dates {
+		g.NextVerifications = append(g.NextVerifications, k)
+	}
+	sort.Strings(g.NextVerifications)
+
+	g.HasNumbers = withNumber > 0
+	if len(numbers) > 1 {
+		g.NumbersDistinct = true
+	}
+	if len(numbers) == 1 && withNumber == len(members) && first.InventoryNumber != nil {
+		number := *first.InventoryNumber
+		g.InventoryNumber = &number
+	}
+	return g
 }
 
 // ListExpiredVerification возвращает оборудование с просроченной поверкой

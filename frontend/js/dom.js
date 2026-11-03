@@ -106,10 +106,27 @@ export function table(headers, rows, emptyText = 'Пока нет записей
   // Строка — либо список ячеек, либо {cells, under}: under рисуется второй
   // строкой на всю ширину (поля под позицией на вкладке «Списание»).
   const lines = rows.map(row => {
-    const cells = Array.isArray(row) ? row : (row.cells || []);
-    const line = el('tr', {}, cells.map(cell => el('td', {}, cell ?? '—')));
-    if (Array.isArray(row) || !row.under) return line;
-    return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+    const isObj = Array.isArray(row);
+    const cells = isObj ? row : (row.cells || []);
+    const line = el('tr', isObj ? {} : {class: row.cls || null}, cells.map(cell => el('td', {}, cell ?? '—')));
+    if (isObj) return line;
+    if (row.under) return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+    if (row.expand) {
+      // Строка-группа: под ней мини-таблица с единицами. Фон подстрок наследуется
+      // от группы (чередования внутри нет), стрелка только переключает видимость.
+      const body = el('tr', {class:'group-body' + (row.alt ? ' alt' : '')}, el('td', {colspan:String(headers.length)}, row.expand));
+      body.hidden = !row.open;
+      const toggle = line.querySelector('.group-toggle');
+      if (toggle) toggle.addEventListener('click', () => {
+        body.hidden = !body.hidden;
+        const open = !body.hidden;
+        toggle.textContent = open ? '▾' : '▸';
+        toggle.setAttribute('aria-expanded', String(open));
+        row.onToggle?.(open);
+      });
+      return [line, body];
+    }
+    return line;
   });
   return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
     el('table', {}, el('thead', {}, el('tr', {}, headers.map(h => el('th', {scope:'col'}, h)))),
