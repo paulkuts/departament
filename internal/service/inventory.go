@@ -197,6 +197,8 @@ func (s *EquipmentService) listGroups(ctx context.Context, f models.InventoryFil
 		}
 	}
 
+	sortGroups(selected, f.Sort, f.Dir)
+
 	limit, offset := f.Paginated.Limit, f.Paginated.Offset
 	start := offset
 	if start > int64(len(selected)) {
@@ -212,6 +214,101 @@ func (s *EquipmentService) listGroups(ctx context.Context, f models.InventoryFil
 		Groups:            selected[start:end],
 		ObjectsTotal:      objectsTotal,
 	}, nil
+}
+
+// sortGroups сортирует строки реестра по колонке. dir="desc" — обратный порядок.
+// Пустые значения («—») всегда идут в конце, независимо от направления.
+func sortGroups(groups []models.InventoryGroup, key, dir string) {
+	value := groupSortValue(key)
+	if value == nil {
+		return
+	}
+	desc := strings.EqualFold(dir, "desc")
+	sort.SliceStable(groups, func(i, j int) bool {
+		vi, emptyI := value(groups[i])
+		vj, emptyJ := value(groups[j])
+		if emptyI != emptyJ {
+			return !emptyI
+		}
+		if vi == vj {
+			return false
+		}
+		if desc {
+			return vi > vj
+		}
+		return vi < vj
+	})
+}
+
+// groupSortValue возвращает значение колонки для строки реестра и признак «пусто».
+func groupSortValue(key string) func(models.InventoryGroup) (string, bool) {
+	switch key {
+	case "name":
+		return func(g models.InventoryGroup) (string, bool) {
+			return strings.ToLower(g.Title), g.Title == ""
+		}
+	case "type":
+		return func(g models.InventoryGroup) (string, bool) {
+			if len(g.Types) == 0 {
+				return "", true
+			}
+			if len(g.Types) == 1 {
+				return strings.ToLower(g.Types[0]), false
+			}
+			return "разные", false
+		}
+	case "number":
+		return func(g models.InventoryGroup) (string, bool) {
+			if g.InventoryNumber != nil && *g.InventoryNumber != "" {
+				return strings.ToUpper(*g.InventoryNumber), false
+			}
+			// У группы с разными номерами берём самый младший — строка не уезжает в конец.
+			best := ""
+			for _, m := range g.Members {
+				if m.InventoryNumber == nil {
+					continue
+				}
+				n := strings.ToUpper(*m.InventoryNumber)
+				if n != "" && (best == "" || n < best) {
+					best = n
+				}
+			}
+			return best, best == ""
+		}
+	case "marks":
+		return func(g models.InventoryGroup) (string, bool) {
+			return fmt.Sprintf("%03d", g.NoNumberCount+g.NotInRegistryCount), false
+		}
+	case "location":
+		return func(g models.InventoryGroup) (string, bool) {
+			if len(g.Locations) == 0 {
+				return "", true
+			}
+			return strings.ToLower(strings.Join(g.Locations, ", ")), false
+		}
+	case "verification":
+		return func(g models.InventoryGroup) (string, bool) {
+			if len(g.NextVerifications) == 0 {
+				return "", true
+			}
+			best := g.NextVerifications[0]
+			for _, d := range g.NextVerifications[1:] {
+				if d < best {
+					best = d
+				}
+			}
+			return best, false
+		}
+	case "status":
+		// По возрастанию — сначала доступные.
+		return func(g models.InventoryGroup) (string, bool) {
+			if g.AllAvailable {
+				return "0", false
+			}
+			return "1", false
+		}
+	}
+	return nil
 }
 
 // BuildInventoryGroups собирает объекты в группы: общий канонический номер и/или

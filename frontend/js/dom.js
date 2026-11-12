@@ -159,8 +159,17 @@ export function table(headers, rows, emptyText = 'Пока нет записей
     }
     return line;
   });
+  // Заголовок — строка или {label, href, dir}: во втором случае это сортировка,
+  // dir («asc»/«desc») показывает текущий порядок стрелкой.
+  const cellHead = h => {
+    if (typeof h === 'string') return el('th', {scope:'col'}, h);
+    const arrow = h.dir === 'asc' ? '▲' : h.dir === 'desc' ? '▼' : '';
+    return el('th', {scope:'col', 'aria-sort':h.dir === 'asc' ? 'ascending' : h.dir === 'desc' ? 'descending' : 'none'},
+      el('a', {class:'sort-head' + (h.dir ? ' active' : ''), href:h.href, title:h.title || 'Сортировать по колонке'},
+        h.label, el('span', {class:'sort-arrow', 'aria-hidden':'true'}, arrow)));
+  };
   return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
-    el('table', {}, el('thead', {}, el('tr', {}, headers.map(h => el('th', {scope:'col'}, h)))),
+    el('table', {}, el('thead', {}, el('tr', {}, headers.map(cellHead))),
       el('tbody', {}, lines)));
 }
 export const actions = (...nodes) => el('div', {class:'actions'}, nodes);

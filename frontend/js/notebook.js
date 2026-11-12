@@ -1,5 +1,5 @@
-import {api} from './api.js?v=48';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=48';
+import {api} from './api.js?v=49';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=49';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -210,7 +210,17 @@ const expandedGroups = new Set();
 async function inventoryList(page,q) {
   const activeType=q.get('type')||'';
   const expired=q.get('expired');
-  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),type:activeType,status:q.get('status')};
+  const params={limit:20,offset:Number(q.get('offset'))||0,search:q.get('search'),type:activeType,status:q.get('status'),sort:q.get('sort'),dir:q.get('dir')};
+  // Сортировка по колонкам: повторный клик по той же колонке меняет порядок.
+  const sortKey=q.get('sort')||'', sortDir=q.get('dir')==='desc'?'desc':'asc';
+  const sortHead=(label,key,firstDir='asc')=>{
+    const active=sortKey===key;
+    const dir=active?(sortDir==='asc'?'desc':'asc'):firstDir;
+    const next=new URLSearchParams();
+    ['search','type','status'].forEach(k=>{const v=q.get(k);if(v)next.set(k,v);});
+    next.set('sort',key);next.set('dir',dir);
+    return {label,href:`#/${page}?${next.toString()}`,dir:active?sortDir:''};
+  };
   // Реестр оборудования — строками-группами: общий номер и/или общее название.
   const data=expired?await api.getExpiredVerification(20,params.offset):await api.getInventory({...params,group:1});
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
@@ -258,7 +268,7 @@ async function inventoryList(page,q) {
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table(['Объект','Категория','Инв. №','Пометки','Расположение','Поверка','Состояние'],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':''),
+    table([sortHead('Объект','name'),sortHead('Категория','type'),sortHead('Инв. №','number'),sortHead('Пометки','marks'),sortHead('Расположение','location','desc'),sortHead('Поверка','verification'),sortHead('Состояние','status')],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':''),
     pager(page,q,data.paginated_metadata),el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}

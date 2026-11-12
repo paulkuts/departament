@@ -140,10 +140,10 @@ tbody tr:hover{background:#d7e6f4}
 .marks .record-link{font-size:12px;font-weight:600;white-space:nowrap}
 
 /* Реестр оборудования: строка-группа и мини-таблица единиц внутри.
-   Цвет группы задаётся её местом в таблице; внутри мини-таблицы чередования нет —
-   подстроки наследуют цвет своей группы. Названия во всех строках начинаются с одного
-   места: место под каретку зарезервировано отступом ячейки, поэтому при раскрытии
-   ничего не сдвигается. */
+   Цвет группы задаётся её местом в таблице, внутри — мягкое чередование от того же фона.
+   Слева статичная точка, под неё зарезервирован отступ, поэтому названия не сдвигаются.
+   Мини-таблица повторяет сетку основной: те же проценты, а название начинается правее
+   (padding-left первой ячейки), поэтому колонки не сжимаются. */
 /* Фиксированная сетка: при раскрытии группы ширины колонок и шапка не меняются. */
 .groups-table > table{table-layout:fixed;width:100%}
 .groups-table > table > thead th:nth-child(1){width:24%}
@@ -169,11 +169,18 @@ tbody tr:hover{background:#d7e6f4}
 .group-title{font-weight:650;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-count{color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
 .record-name{font-weight:650}
-.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 32px;white-space:normal;box-shadow:inset 4px 0 0 #cddbe8}
+.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 0;white-space:normal;box-shadow:inset 4px 0 0 #cddbe8}
 .groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
 .groups-table .group-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.groups-table .group-table td:nth-child(1){width:24%}
+.groups-table .group-table td:nth-child(2){width:12%}
+.groups-table .group-table td:nth-child(3){width:11%}
+.groups-table .group-table td:nth-child(4){width:14%}
+.groups-table .group-table td:nth-child(5){width:12%}
+.groups-table .group-table td:nth-child(6){width:11%}
+.groups-table .group-table td:nth-child(7){width:16%}
 .groups-table .group-table td{padding:9px 16px 9px 0;border-bottom:1px solid #e6ecf2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.groups-table .group-table td:first-child{padding-left:12px}
+.groups-table .group-table td:first-child{padding-left:44px}
 .groups-table .group-table tr:last-child td{border-bottom:0}
 .groups-table .group-table tbody tr{background:transparent}
 /* Внутри группы чередование мягкое: второй цвет чуть светлее фона группы. */
@@ -182,3 +189,8 @@ tbody tr:hover{background:#d7e6f4}
 .groups-table tbody tr.group-body.alt .group-table tbody tr:nth-child(even){background:#f1f7fb}
 .groups-table .group-table tbody tr{cursor:pointer}
 .group-body[hidden]{display:none}
+
+/* Заголовки реестра — ссылки сортировки: тот же цвет, стрелка показывает порядок. */
+.groups-table th .sort-head{display:inline-flex;align-items:center;gap:5px;color:inherit;text-decoration:none;white-space:nowrap}
+.groups-table th .sort-head:hover{color:var(--blue);text-decoration:underline}
+.groups-table th .sort-arrow{font-size:9px;color:var(--blue);min-width:8px;display:inline-block}

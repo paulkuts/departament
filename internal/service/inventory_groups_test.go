@@ -117,3 +117,57 @@ func TestBuildInventoryGroupsStableOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestSortGroups(t *testing.T) {
+	groups := []models.InventoryGroup{
+		{Key: "a", Title: "Стол", Types: []string{"inventory"}, Locations: []string{"105"}, NextVerifications: []string{"2027-05-01"}, AllAvailable: true},
+		{Key: "b", Title: "Аппарат", Types: []string{"equipment"}, Locations: []string{"101"}, NextVerifications: []string{}, AllAvailable: false},
+		{Key: "c", Title: "Шкаф", Types: []string{"inventory", "equipment"}, Locations: []string{}, NextVerifications: []string{"2026-12-01"}, AllAvailable: true},
+	}
+
+	titles := func() []string {
+		out := make([]string, len(groups))
+		for i, g := range groups {
+			out[i] = g.Title
+		}
+		return out
+	}
+
+	sortGroups(groups, "name", "asc")
+	if titles()[0] != "Аппарат" || titles()[1] != "Стол" || titles()[2] != "Шкаф" {
+		t.Fatalf("сортировка по названию asc: %v", titles())
+	}
+	sortGroups(groups, "name", "desc")
+	if titles()[0] != "Шкаф" || titles()[2] != "Аппарат" {
+		t.Fatalf("сортировка по названию desc: %v", titles())
+	}
+
+	// Пустые значения всегда в конце, независимо от порядка.
+	sortGroups(groups, "location", "asc")
+	if groups[2].Key != "c" {
+		t.Fatalf("без расположения должно быть в конце (asc): %v", titles())
+	}
+	sortGroups(groups, "location", "desc")
+	if groups[2].Key != "c" {
+		t.Fatalf("без расположения должно быть в конце (desc): %v", titles())
+	}
+
+	// Поверка: ближайшая дата первой.
+	sortGroups(groups, "verification", "asc")
+	if groups[0].Key != "c" || groups[1].Key != "a" || groups[2].Key != "b" {
+		t.Fatalf("сортировка по поверке: %v", titles())
+	}
+
+	// Состояние: доступные выше.
+	sortGroups(groups, "status", "asc")
+	if groups[2].Key != "b" {
+		t.Fatalf("недоступное должно быть в конце: %v", titles())
+	}
+
+	// Неизвестная колонка ничего не меняет.
+	before := titles()
+	sortGroups(groups, "", "asc")
+	if titles()[0] != before[0] || titles()[2] != before[2] {
+		t.Fatalf("пустой ключ не должен менять порядок: %v", titles())
+	}
+}

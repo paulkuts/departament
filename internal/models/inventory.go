@@ -50,6 +50,8 @@ type InventoryFilter struct {
 	InventoryNumber *string `form:"inventory"`  // ✅ ?inventory=
 	Status          *bool   `form:"-"`          // ✅ игнорируем (парсится вручную)
 	Group           bool    `form:"group"`      // ✅ ?group=1 — вернуть группы, а не плоский список
+	Sort            string  `form:"sort"`       // ?sort=name|type|number|marks|location|verification|status
+	Dir             string  `form:"dir"`        // ?dir=asc|desc
 	Paginated       Paginated
 }
 
