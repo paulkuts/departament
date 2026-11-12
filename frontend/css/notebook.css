@@ -138,3 +138,29 @@ tbody tr:hover{background:#d7e6f4}
 /* Пометки в реестре имущества: флаги и общий номер — столбиком, чтобы не растягивать строку */
 .marks{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
 .marks .record-link{font-size:12px;font-weight:600;white-space:nowrap}
+
+/* Реестр оборудования: строка-группа и мини-таблица единиц внутри.
+   Цвет группы задаётся её местом в таблице; внутри мини-таблицы чередования нет —
+   подстроки наследуют цвет своей группы. Названия во всех строках начинаются с одного
+   места: место под каретку зарезервировано отступом ячейки, поэтому при раскрытии
+   ничего не сдвигается. */
+.groups-table tbody tr{background:transparent}
+.groups-table tbody tr.group-row{cursor:pointer}
+.groups-table tbody tr.clickable{cursor:pointer}
+.groups-table tbody tr.group-row.alt,.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
+.groups-table tbody tr.group-row:hover,.groups-table tbody tr.group-row:hover+tr.group-body>td{background:#f8fbfd}
+.groups-table tbody tr>td:first-child{position:relative;padding-left:32px}
+.group-head{display:flex;align-items:center;gap:6px;min-width:0}
+.group-toggle{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:15px;line-height:1;pointer-events:none}
+.group-title{font-weight:650;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.group-count{color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
+.record-name{font-weight:650}
+.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 32px;white-space:normal;box-shadow:inset 4px 0 0 #cddbe8}
+.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
+.groups-table .group-table{width:100%;border-collapse:collapse;table-layout:fixed}
+.groups-table .group-table td{padding:9px 16px 9px 0;border-bottom:1px solid #e6ecf2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.groups-table .group-table td:first-child{padding-left:12px}
+.groups-table .group-table tr:last-child td{border-bottom:0}
+.groups-table .group-table tbody tr,.groups-table .group-table tbody tr:hover{background:transparent}
+.groups-table .group-table tbody tr{cursor:pointer}
+.group-body[hidden]{display:none}

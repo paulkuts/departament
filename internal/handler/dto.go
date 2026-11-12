@@ -207,6 +207,31 @@ type UpdateInventoryRequest struct {
 	NextVerificationDate *string `json:"next_verification_date"`
 }
 
+// InventoryGroupResponse — строка реестра оборудования: несколько единиц с общим
+// номером и/или названием. Members — все единицы группы целиком.
+type InventoryGroupResponse struct {
+	Key                string              `json:"key"`
+	Title              string              `json:"title"`
+	InventoryNumber    *string             `json:"inventory_number,omitempty"`
+	HasNumbers         bool                `json:"has_numbers"`
+	NumbersDistinct    bool                `json:"numbers_distinct"`
+	Count              int                 `json:"count"`
+	Types              []string            `json:"types"`
+	Locations          []string            `json:"locations"`
+	NextVerifications  []string            `json:"next_verifications"`
+	AllAvailable       bool                `json:"all_available"`
+	NoNumberCount      int                 `json:"no_number_count"`
+	NotInRegistryCount int                 `json:"not_in_registry_count"`
+	Members            []InventoryResponse `json:"members"`
+}
+
+// GroupedInventoryResponse — ответ реестра в режиме групп (?group=1)
+type GroupedInventoryResponse struct {
+	PaginatedMetadata models.PaginatedMetadata `json:"paginated_metadata"`
+	Groups            []InventoryGroupResponse `json:"groups"`
+	ObjectsTotal      int64                    `json:"objects_total"`
+}
+
 type InventoryResponse struct {
 	ID                   int64   `json:"id"`
 	Type                 string  `json:"type" binding:"required"`

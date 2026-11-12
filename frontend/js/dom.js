@@ -105,11 +105,48 @@ export function table(headers, rows, emptyText = 'Пока нет записей
   if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
   // Строка — либо список ячеек, либо {cells, under}: under рисуется второй
   // строкой на всю ширину (поля под позицией на вкладке «Списание»).
+  // {expand, open, onToggle} — строка-группа: клик по всей строке раскрывает
+  // мини-таблицу единиц. {onClick} — обычная строка: клик открывает карточку.
   const lines = rows.map(row => {
-    const cells = Array.isArray(row) ? row : (row.cells || []);
-    const line = el('tr', {}, cells.map(cell => el('td', {}, cell ?? '—')));
-    if (Array.isArray(row) || !row.under) return line;
-    return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+    const isObj = Array.isArray(row);
+    const cells = isObj ? row : (row.cells || []);
+    const line = el('tr', isObj ? {} : {class: row.cls || null}, cells.map(cell => el('td', {}, cell ?? '—')));
+    if (isObj) return line;
+    if (row.under) return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+    if (row.expand) {
+      // Строка-группа: под ней мини-таблица с единицами. Фон подстрок наследуется
+      // от группы (чередования внутри нет). Точка слева только обозначает группу —
+      // она не меняется, раскрывает и сворачивает клик по любой части строки.
+      const body = el('tr', {class:'group-body' + (row.alt ? ' alt' : '')}, el('td', {colspan:String(headers.length)}, row.expand));
+      body.hidden = !row.open;
+      const dot = line.querySelector('.group-toggle');
+      const toggle = () => {
+        body.hidden = !body.hidden;
+        const open = !body.hidden;
+        line.classList.toggle('expanded', open);
+        line.setAttribute('aria-expanded', String(open));
+        dot?.setAttribute('aria-expanded', String(open));
+        row.onToggle?.(open);
+      };
+      line.tabIndex = 0;
+      line.setAttribute('role', 'button');
+      line.setAttribute('aria-expanded', String(row.open));
+      if (row.label) line.setAttribute('aria-label', `Группа «${row.label}»`);
+      if (row.open) line.classList.add('expanded');
+      line.addEventListener('click', toggle);
+      line.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+      });
+      return [line, body];
+    }
+    if (row.onClick) {
+      line.classList.add('clickable');
+      line.addEventListener('click', event => {
+        if (event.target.closest('a,button')) return;
+        row.onClick(event);
+      });
+    }
+    return line;
   });
   return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
     el('table', {}, el('thead', {}, el('tr', {}, headers.map(h => el('th', {scope:'col'}, h)))),

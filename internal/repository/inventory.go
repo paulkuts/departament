@@ -22,7 +22,7 @@ func NewInventoryRepo(db *sqlx.DB, log *zap.Logger) *InventoryRepo {
 }
 
 // inventoryColumns — список колонок для SELECT (без JOIN)
-const inventoryColumns = `id, type, name, description, location, documentation, inventory_number,
+const inventoryColumns = `id, type, name, name_normalized, description, location, documentation, inventory_number,
 	responsible_id, no_number_on_item, not_in_registry, status, unavailable_reason, last_verification_date, next_verification_date, created_at, updated_at`
 
 // NumberIndex возвращает номера всех объектов — по нему считается «общий номер».
@@ -80,13 +80,8 @@ func (r *InventoryRepo) GetByInventoryNumber(ctx context.Context, invNumber stri
 	return e, nil
 }
 
-// List возвращает список оборудования с фильтрами, пагинацией и общим количеством.
-//   - Search:          поиск по наименованию и инвентарному номеру (как в описи)
-//   - InventoryNumber: поиск по инвентарному номеру (LIKE inventory%)
-//   - Status:          фильтр по статусу (nil = без фильтра)
-//   - Limit / Offset:  пагинация
-func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, int64, error) {
-	// Динамически собираем условия WHERE
+// inventoryWhere собирает условие WHERE и аргументы для фильтра реестра
+func inventoryWhere(f models.InventoryFilter) (string, []interface{}) {
 	var conditions []string
 	var args []interface{}
 
@@ -101,12 +96,12 @@ func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]m
 		// SQLite не поднимает регистр кириллицы, иначе «стол» не нашёл бы «Стол».
 		// Номер — в верхнем регистре (запрос поднимает Go, а не SQLite).
 		conditions = append(conditions, "(name_normalized LIKE ? OR UPPER(inventory_number) LIKE ?)")
-		args = append(args, "%"+NormalizeName(*f.Search)+"%", "%"+strings.ToUpper(*f.Search)+"%") // содержит
+		args = append(args, "%"+NormalizeName(*f.Search)+"%", "%"+strings.ToUpper(*f.Search)+"%")
 	}
 
 	if f.InventoryNumber != nil {
 		conditions = append(conditions, "inventory_number LIKE ?")
-		args = append(args, "%"+*f.InventoryNumber+"%") // содержит
+		args = append(args, "%"+*f.InventoryNumber+"%")
 	}
 
 	if f.Status != nil {
@@ -114,10 +109,15 @@ func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]m
 		args = append(args, *f.Status)
 	}
 
-	whereClause := ""
-	if len(conditions) > 0 {
-		whereClause = " WHERE " + strings.Join(conditions, " AND ")
+	if len(conditions) == 0 {
+		return "", nil
 	}
+	return " WHERE " + strings.Join(conditions, " AND "), args
+}
+
+// List возвращает список оборудования с фильтрами, пагинацией и общим количеством.
+func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, int64, error) {
+	whereClause, args := inventoryWhere(f)
 
 	// 1. Общее количество записей под фильтр
 	var total int64
@@ -142,6 +142,18 @@ func (r *InventoryRepo) List(ctx context.Context, f models.InventoryFilter) ([]m
 	}
 
 	return items, total, nil
+}
+
+// ListAll — все записи под фильтром без пагинации. Нужен группировке: группу
+// собираем целиком, даже если фильтру соответствует только часть её единиц.
+func (r *InventoryRepo) ListAll(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, error) {
+	whereClause, args := inventoryWhere(f)
+	var items []models.Inventory
+	query := `SELECT ` + inventoryColumns + ` FROM inventory` + whereClause + ` ORDER BY id`
+	if err := r.db.SelectContext(ctx, &items, query, args...); err != nil {
+		return nil, fmt.Errorf("list all inventory: %w", err)
+	}
+	return items, nil
 }
 
 // ListExpiredVerification возвращает оборудование с просроченной поверкой
