@@ -1,5 +1,5 @@
-import {api} from './api.js?v=46';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=46';
+import {api} from './api.js?v=47';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=47';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -215,8 +215,9 @@ async function inventoryList(page,q) {
   const data=expired?await api.getExpiredVerification(20,params.offset):await api.getInventory({...params,group:1});
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
   const cells=x=>[el('span',{class:'record-name'},x.name),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location||'—',verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')];
-  // Обычная строка: клик в любом месте открывает мини-карточку, а не страницу.
-  const objectRow=x=>({cells:cells(x),onClick:()=>equipmentPreview(x,page)});
+  // Одиночный клик — мини-карточка, двойной — страница оборудования.
+  const openCard=x=>{closeModal();navTo(`${page}/${x.id}`);};
+  const objectRow=x=>({cells:cells(x),onClick:()=>equipmentPreview(x,page),onDblClick:()=>openCard(x)});
   const groups=data.groups||[];
   // Поиск нашёл ровно одну группу — показываем её сразу раскрытой.
   if(q.get('search')&&groups.length===1&&groups[0].count>1)expandedGroups.add(groups[0].key);
@@ -228,9 +229,15 @@ async function inventoryList(page,q) {
     const head=el('div',{class:'group-head'},el('span',{class:'group-toggle','aria-hidden':'true'},'•'),el('span',{class:'group-title'},g.title),el('span',{class:'group-count'},`· ${g.count} шт`));
     const inner=el('table',{class:'group-table'},el('tbody',{},g.members.map(m=>{
       const tr=el('tr',{class:'group-item'},cells(m).map(c=>el('td',{},c??'—')));
+      let timer=null;
       tr.addEventListener('click',event=>{
         if(event.target.closest('a')) return;
-        equipmentPreview(m,page);
+        clearTimeout(timer);
+        timer=setTimeout(()=>{timer=null;equipmentPreview(m,page);},220);
+      });
+      tr.addEventListener('dblclick',event=>{
+        if(event.target.closest('a')) return;
+        clearTimeout(timer);timer=null;openCard(m);
       });
       return tr;
     })));

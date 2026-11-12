@@ -139,11 +139,22 @@ export function table(headers, rows, emptyText = 'Пока нет записей
       });
       return [line, body];
     }
-    if (row.onClick) {
+    if (row.onClick || row.onDblClick) {
       line.classList.add('clickable');
+      // Одиночный клик — мини-карточка, двойной — полная страница. Одиночный ждёт
+      // 220 мс, иначе при двойном клике успевала открыться карточка.
+      let clickTimer = null;
       line.addEventListener('click', event => {
         if (event.target.closest('a,button')) return;
-        row.onClick(event);
+        if (!row.onDblClick) { row.onClick?.(event); return; }
+        clearTimeout(clickTimer);
+        clickTimer = setTimeout(() => { clickTimer = null; row.onClick?.(event); }, 220);
+      });
+      line.addEventListener('dblclick', event => {
+        if (event.target.closest('a,button')) return;
+        clearTimeout(clickTimer);
+        clickTimer = null;
+        row.onDblClick(event);
       });
     }
     return line;
