@@ -126,6 +126,19 @@ func (a *AuthS) ValidateRefreshSession(ctx context.Context, tokenID string) erro
 	return nil
 }
 
+// SessionUserID — владелец refresh-сессии без ротации токена. Нужна режиму
+// «сайт в разработке»: при загрузке страницы браузер присылает только cookie.
+func (a *AuthS) SessionUserID(ctx context.Context, tokenID string) (string, error) {
+	token, err := a.tokenRepo.Token(ctx, tokenID)
+	if err != nil {
+		return "", fmt.Errorf("session not found")
+	}
+	if token.ExpiresAt.Before(time.Now()) {
+		return "", fmt.Errorf("session expired")
+	}
+	return token.UserID, nil
+}
+
 func (a *AuthS) generateAccessToken(userID, role string) (string, error) {
 	tkn := jwt.New()
 

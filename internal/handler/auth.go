@@ -15,18 +15,21 @@ type AuthService interface {
 	SignIn(ctx context.Context, email, password string) (models.TokenOutput, error)
 	Logout(ctx context.Context, tokenID string) error
 	ValidateRefreshSession(ctx context.Context, tokenID string) error
+	SessionUserID(ctx context.Context, tokenID string) (string, error)
 	ParseToken(ctx context.Context, accessToken string) (string, string, error)
 	RefreshToken(ctx context.Context, tokenID string) (models.TokenOutput, error)
 }
 
 type AuthHandler struct {
-	svc AuthService
-	cfg config.AuthCfg
-	log *zap.Logger
+	svc        AuthService
+	userSvc    UserService
+	cfg        config.AuthCfg
+	log        *zap.Logger
+	allowEmail func(*string) bool
 }
 
-func NewAuthHandler(svc AuthService, cfg config.AuthCfg, log *zap.Logger) *AuthHandler {
-	return &AuthHandler{svc: svc, cfg: cfg, log: log}
+func NewAuthHandler(svc AuthService, userSvc UserService, cfg config.AuthCfg, log *zap.Logger, allowEmail func(*string) bool) *AuthHandler {
+	return &AuthHandler{svc: svc, userSvc: userSvc, cfg: cfg, log: log, allowEmail: allowEmail}
 }
 
 func (h *AuthHandler) RegisterRoutes(rg *gin.RouterGroup) {
@@ -57,6 +60,22 @@ func (h *AuthHandler) signIn(c *gin.Context) {
 		)
 		handleError(c, err)
 		return
+	}
+
+	// Режим «сайт в разработке»: входить может только разрешённая учётная запись.
+	if h.allowEmail != nil {
+		allowed := false
+		if id, _, err := h.svc.ParseToken(c.Request.Context(), user.AccessToken); err == nil {
+			if account, err := h.userSvc.GetByID(c.Request.Context(), id); err == nil && account != nil {
+				allowed = h.allowEmail(account.Email)
+			}
+		}
+		if !allowed {
+			// Токены уже выданы — убираем сессию, чтобы не копились.
+			_ = h.svc.Logout(c.Request.Context(), user.RefreshToken)
+			c.JSON(http.StatusForbidden, ErrorResponse{Error: "Сайт в разработке: вход закрыт"})
+			return
+		}
 	}
 
 	http.SetCookie(c.Writer, &http.Cookie{

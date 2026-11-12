@@ -56,6 +56,18 @@ type ConvertConfig struct {
 	MaxFileSize int    `mapstructure:"max_file_size"`
 }
 
+// MaintenanceConfig — режим «сайт в разработке»: наружу отдаётся заглушка,
+// полный доступ остаётся только у перечисленных учётных записей.
+// RegistrationOpen=false закрывает открытую регистрацию: пользователей создаёт админ.
+type MaintenanceConfig struct {
+	Enabled          bool     `mapstructure:"enabled"`
+	Title            string   `mapstructure:"title"`
+	Message          string   `mapstructure:"message"`
+	AllowedEmails    []string `mapstructure:"allowed_emails"`
+	AllowedIPs       []string `mapstructure:"allowed_ips"`
+	RegistrationOpen bool     `mapstructure:"registration_open"`
+}
+
 // LoggerConfig настройки логгера (совместим с zap.Config)
 type LoggerConfig struct {
 	Level             string   `mapstructure:"level" validate:"oneof=debug info warn error dpanic panic fatal"`
@@ -84,6 +96,7 @@ type Config struct {
 	Photo    PhotoConfig    `mapstructure:"photo"`
 	Document DocumentConfig `mapstructure:"documents"`
 	Convert  ConvertConfig  `mapstructure:"convert"`
+	Maintenance MaintenanceConfig `mapstructure:"maintenance"`
 	Logger   LoggerConfig   `mapstructure:"logger"`
 	Server ServerConfig `mapstructure:"server"`
 }
@@ -163,6 +176,11 @@ func setDefaults(v *viper.Viper) {
 
 	// Convert — конвертер файлов (base_url задаётся в конфиге сервера)
 	v.SetDefault("convert.max_file_size", 52428800) // 50 МБ
+
+	// Maintenance — режим «сайт в разработке» и закрытая регистрация
+	v.SetDefault("maintenance.title", "Сайт в разработке")
+	v.SetDefault("maintenance.message", "Сайт кафедры закрыт на доработку. Скоро вернёмся.")
+	v.SetDefault("maintenance.registration_open", false)
 
 	// Logger (совместимо с zap)
 	v.SetDefault("logger.level", "info")

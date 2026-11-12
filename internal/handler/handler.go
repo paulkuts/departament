@@ -68,12 +68,28 @@ type Handler struct {
 	rateLimiter     *ratelimiter.RateLimiter
 	frontendFS      embed.FS
 	frontendFSReady bool
+
+	maintenance   config.MaintenanceConfig
+	allowedEmails map[string]bool
 }
 
 func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, keySvc KeyService, InventorySvc InventoryService, photoSvc InventoryPhotoService, documentSvc InventoryDocumentService, writeoffSvc WriteoffService, eventSvc EventService, cfg *config.Config, log *zap.Logger) *Handler {
 	rateLimiter := ratelimiter.NewRateLimiter(20, 10)
+	allowedEmails := make(map[string]bool)
+	var allowEmail func(*string) bool
+	if cfg.Maintenance.Enabled {
+		for _, email := range cfg.Maintenance.AllowedEmails {
+			allowedEmails[strings.ToLower(strings.TrimSpace(email))] = true
+		}
+		allowEmail = func(email *string) bool {
+			if email == nil {
+				return false
+			}
+			return allowedEmails[strings.ToLower(strings.TrimSpace(*email))]
+		}
+	}
 	return &Handler{
-		auth:      NewAuthHandler(authSvc, cfg.Auth, log),
+		auth:      NewAuthHandler(authSvc, userSvc, cfg.Auth, log, allowEmail),
 		article:   NewArticleHandler(articleSvc),
 		user:      NewUserHandler(userSvc, keySvc, cfg.Photo),
 		profile:   NewProfileHandler(userSvc, cfg.Photo),
@@ -88,6 +104,9 @@ func New(authSvc AuthService, articleSvc ArticleService, userSvc UserService, ke
 		log:       log,
 
 		rateLimiter: rateLimiter,
+
+		maintenance:   cfg.Maintenance,
+		allowedEmails: allowedEmails,
 	}
 }
 
@@ -107,6 +126,9 @@ func (h *Handler) InitRoutes() *gin.Engine {
 		h.rateLimitMiddleware(h.rateLimiter),
 	)
 
+	// Режим «сайт в разработке»: наружу — заглушка, полный доступ только разрешённым.
+	router.Use(h.maintenanceGate)
+
 	// 1. Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -116,7 +138,7 @@ func (h *Handler) InitRoutes() *gin.Engine {
 	public := router.Group("/api/v1")
 	{
 		h.auth.RegisterRoutes(public)
-		public.POST("/auth/register", h.user.Register)
+		public.POST("/auth/register", h.registrationGate, h.user.Register)
 		if h.workspace != nil {
 			// Ключ по QR: сотрудник определяется по токену, гость — по метке браузера.
 			h.workspace.RegisterPublicRoutes(public, h.optionalAuth)
