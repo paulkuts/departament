@@ -101,23 +101,19 @@ export const dateLocal = value => {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 };
 export const status = (text, kind = '') => el('span', {class:`status ${kind}`}, text);
-export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '', opts = {}) {
-  if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
-  // Строка — либо список ячеек, либо {cells, under}: under рисуется второй
-  // строкой на всю ширину (поля под позицией на вкладке «Списание»).
-  // {expand, open, onToggle} — строка-группа: клик по всей строке раскрывает
-  // мини-таблицу единиц. {onClick} — обычная строка: клик открывает карточку.
-  const lines = rows.map(row => {
+// Описания строк → узлы таблицы. Отдельная функция: реестр дописывает строки
+// кнопкой «Загрузить все» без перерисовки страницы.
+export function buildRows(rows, columnCount) {
+  return rows.flatMap(row => {
     const isObj = Array.isArray(row);
     const cells = isObj ? row : (row.cells || []);
     const line = el('tr', isObj ? {} : {class: row.cls || null}, cells.map(cell => el('td', {}, cell ?? '—')));
-    if (isObj) return line;
-    if (row.under) return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(headers.length)}, row.under))];
+    if (isObj) return [line];
+    if (row.under) return [line, el('tr', {class:'row-under'}, el('td', {colspan:String(columnCount)}, row.under))];
     if (row.expand) {
-      // Строка-группа: под ней мини-таблица с единицами. Фон подстрок наследуется
-      // от группы (чередования внутри нет). Точка слева только обозначает группу —
-      // она не меняется, раскрывает и сворачивает клик по любой части строки.
-      const body = el('tr', {class:'group-body' + (row.alt ? ' alt' : '')}, el('td', {colspan:String(headers.length)}, row.expand));
+      // Строка-группа: под ней мини-таблица единиц. Точка слева только обозначает
+      // группу: раскрывает и сворачивает клик по любой части строки.
+      const body = el('tr', {class:'group-body' + (row.alt ? ' alt' : '')}, el('td', {colspan:String(columnCount)}, row.expand));
       body.hidden = !row.open;
       const dot = line.querySelector('.group-toggle');
       const toggle = () => {
@@ -141,8 +137,7 @@ export function table(headers, rows, emptyText = 'Пока нет записей
     }
     if (row.onClick || row.onDblClick) {
       line.classList.add('clickable');
-      // Одиночный клик — мини-карточка, двойной — полная страница. Одиночный ждёт
-      // 220 мс, иначе при двойном клике успевала открыться карточка.
+      // Одиночный клик — мини-карточка, двойной — страница. Одиночный ждёт 220 мс.
       let clickTimer = null;
       line.addEventListener('click', event => {
         if (event.target.closest('a,button')) return;
@@ -157,8 +152,13 @@ export function table(headers, rows, emptyText = 'Пока нет записей
         row.onDblClick(event);
       });
     }
-    return line;
+    return [line];
   });
+}
+
+export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '', opts = {}) {
+  if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
+  const lines = buildRows(rows, headers.length);
   // Заголовок — строка или {label, href, dir}: во втором случае это сортировка,
   // dir («asc»/«desc») показывает текущий порядок стрелкой.
   const cellHead = h => {

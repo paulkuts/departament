@@ -1,5 +1,5 @@
-import {api} from './api.js?v=50';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=50';
+import {api} from './api.js?v=52';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=52';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -168,13 +168,6 @@ function finishLiveSearch(page,q,live) {
   try { search.setSelectionRange(search.value.length,search.value.length); } catch {}
   if ((q.get(liveFilter.name) || '') !== liveFilter.value) search.dispatchEvent(new Event('input'));
 }
-function pager(page,q,meta={}) {
-  const current=Number(meta.page)||1,total=Number(meta.total_pages)||1;
-  const go=offset=>{const next=new URLSearchParams(q);next.set('offset',offset);navTo(`${page}?${next}`);};
-  const prev=button('← Назад',()=>go(Math.max(0,(current-2)*20)));prev.disabled=current<=1;
-  const next=button('Далее →',()=>go(current*20));next.disabled=current>=total;
-  return el('div',{class:'sheet-foot'},el('span',{},`${meta.total ?? '—'} записей · страница ${current} из ${total}`),actions(prev,next));
-}
 async function overview() {
   const results=await Promise.allSettled([api.getInventory({limit:5}),api.getKeys(),api.getArticles({limit:3}),api.getEvents({limit:4}),api.getExpiredVerification(1,0)]);
   const values=results.map(r=>r.status==='fulfilled'?r.value:null);
@@ -235,7 +228,7 @@ async function inventoryList(page,q) {
   const groups=data.groups||[];
   // Поиск нашёл ровно одну группу — показываем её сразу раскрытой.
   if(q.get('search')&&groups.length===1&&groups[0].count>1)expandedGroups.add(groups[0].key);
-  const rows=groups.length?groups.map((g,index)=>{
+  const groupRow=(g,index)=>{
     if(g.count===1)return objectRow(g.members[0],index);
     const open=expandedGroups.has(g.key);
     // Пустые списки сервер может отдать как null — приводим к массивам.
@@ -259,7 +252,7 @@ async function inventoryList(page,q) {
       key:g.key,label:g.title,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
       cells:[head,
         groupTypes.length===1?(types[groupTypes[0]]||groupTypes[0]):'разные',
-        g.inventory_number||(g.has_numbers?'индивидуальны':'—'),
+        g.inventory_number||(g.has_numbers?'…':'—'),
         status('Группа'),
         groupLocations.length===1?groupLocations[0]:(groupLocations.length?`${groupLocations.length} каб.`:'—'),
         groupVerifications.length===0?'—':(groupVerifications.length===1?verification(groupVerifications[0]):'разные даты'),
@@ -267,13 +260,39 @@ async function inventoryList(page,q) {
       expand:inner,open,
       onToggle:o=>{o?expandedGroups.add(g.key):expandedGroups.delete(g.key);}
     };
-  }):(data.inventory||[]).map((x,index)=>objectRow(x,index));
+  };
+  // В просроченных поверках приходит плоский список, в реестре — группы.
+  const makeRows=(list,start)=>expired?list.map((x,i)=>objectRow(x,start+i)):list.map((g,i)=>groupRow(g,start+i));
+  const rows=(groups.length?makeRows(groups,0):makeRows(data.inventory||[],0));
   const foot=groups.length?`${data.paginated_metadata?.total ?? 0} групп · ${data.objects_total ?? 0} объектов`:`${data.paginated_metadata?.total ?? 0} объектов`;
+  const tblEl=table([sortHead('Объект','name'),sortHead('Категория','type'),sortHead('Инв. №','number'),sortHead('Пометки','marks'),sortHead('Расположение','location','desc'),sortHead('Поверка','verification'),sortHead('Состояние','status')],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':'',{headerDblClick:()=>{if(q.get('sort'))location.hash=resetHref;},headerTitle:'Двойной клик по пустому месту шапки — сбросить сортировку'});
+  // «Загрузить все»: дописываем остаток в таблицу, страница не перерисовывается.
+  let total=Number(data.paginated_metadata?.total ?? rows.length);
+  let loaded=expired?(data.inventory||[]).length:groups.length;
+  const loadAll=el('button',{class:'load-all',type:'button'},'Загрузить все');
+  loadAll.hidden=loaded>=total;
+  loadAll.addEventListener('click',async()=>{
+    loadAll.disabled=true;loadAll.textContent='Загрузка…';
+    try{
+      // Сервер отдаёт не больше 100 строк за запрос — добираем порциями, пока не загрузим всё.
+      const tbody=tblEl.querySelector('tbody');
+      let guard=0;
+      while(loaded<total && guard++<50){
+        const more=expired?await api.getExpiredVerification(200,loaded):await api.getInventory({...params,group:1,offset:loaded,limit:200});
+        const list=expired?(more.inventory||[]):(more.groups||[]);
+        if(!list.length)break;
+        tbody.append(...buildRows(makeRows(list,loaded),7));
+        loaded+=list.length;
+        total=Number(more.paginated_metadata?.total??total);
+      }
+      if(loaded>=total)loadAll.remove();
+      else{loadAll.disabled=false;loadAll.textContent='Загрузить все';}
+    }catch(error){loadAll.disabled=false;loadAll.textContent='Загрузить все';toast(error.message||'Не удалось загрузить все записи');}
+  });
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table([sortHead('Объект','name'),sortHead('Категория','type'),sortHead('Инв. №','number'),sortHead('Пометки','marks'),sortHead('Расположение','location','desc'),sortHead('Поверка','verification'),sortHead('Состояние','status')],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':'',{headerDblClick:()=>{if(q.get('sort'))location.hash=resetHref;},headerTitle:'Двойной клик по пустому месту шапки — сбросить сортировку'}),
-    pager(page,q,data.paginated_metadata),el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
+    tblEl,loadAll,el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
 // Инвентаризация — опись материального отдела: официальные данные, только для администраторов.
@@ -1038,5 +1057,10 @@ document.querySelector('.skip').addEventListener('click',event=>{event.preventDe
 window.addEventListener('hashchange',route);
 window.addEventListener('auth:logout',()=>{me=null;closeModal();navTo('login');});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('rail').classList.remove('open');});
+// Кнопка «наверх»: гексагон в правом нижнем углу, появляется после прокрутки.
+const toTop=el('button',{class:'to-top',type:'button','aria-label':'Наверх','title':'Наверх'},'↑');
+toTop.addEventListener('click',()=>window.scrollTo({top:0,behavior:'smooth'}));
+document.body.append(toTop);
+window.addEventListener('scroll',()=>{toTop.classList.toggle('show',window.scrollY>600);},{passive:true});
 try {if(await api.refresh()) me=await api.getMe();} catch {api.clearToken();}
 route();
