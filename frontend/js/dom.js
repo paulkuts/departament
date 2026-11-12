@@ -101,7 +101,7 @@ export const dateLocal = value => {
   return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
 };
 export const status = (text, kind = '') => el('span', {class:`status ${kind}`}, text);
-export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '') {
+export function table(headers, rows, emptyText = 'Пока нет записей. Они появятся здесь после добавления.', extraClass = '', opts = {}) {
   if (!rows.length) return el('div', {class:'empty'}, el('h3', {}, 'Здесь пока пусто'), el('p', {}, emptyText));
   // Строка — либо список ячеек, либо {cells, under}: under рисуется второй
   // строкой на всю ширину (поля под позицией на вкладке «Списание»).
@@ -168,9 +168,17 @@ export function table(headers, rows, emptyText = 'Пока нет записей
       el('a', {class:'sort-head' + (h.dir ? ' active' : ''), href:h.href, title:h.title || 'Сортировать по колонке'},
         h.label, el('span', {class:'sort-arrow', 'aria-hidden':'true'}, arrow)));
   };
+  const head = el('thead', {}, el('tr', {}, headers.map(cellHead)));
+  // Двойной клик по пустому месту шапки — сброс сортировки (по ссылкам не срабатываем).
+  if (opts.headerDblClick) {
+    head.addEventListener('dblclick', e => {
+      if (e.target.closest('a')) return;
+      opts.headerDblClick();
+    });
+    if (opts.headerTitle) head.querySelectorAll('th').forEach(th => { th.title = opts.headerTitle; });
+  }
   return el('div', {class:'table-scroll' + (extraClass ? ' ' + extraClass : ''), tabindex:'0', role:'region', 'aria-label':'Реестр. На узком экране прокручивается по горизонтали'},
-    el('table', {}, el('thead', {}, el('tr', {}, headers.map(cellHead))),
-      el('tbody', {}, lines)));
+    el('table', {}, head, el('tbody', {}, lines)));
 }
 export const actions = (...nodes) => el('div', {class:'actions'}, nodes);
 export const sheet = (...nodes) => el('section', {class:'sheet'}, nodes);

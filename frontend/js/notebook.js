@@ -1,5 +1,5 @@
-import {api} from './api.js?v=49';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=49';
+import {api} from './api.js?v=50';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=50';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -221,6 +221,10 @@ async function inventoryList(page,q) {
     next.set('sort',key);next.set('dir',dir);
     return {label,href:`#/${page}?${next.toString()}`,dir:active?sortDir:''};
   };
+  // Сброс сортировки: та же страница с поиском и фильтрами, но без sort/dir.
+  const resetParams=new URLSearchParams();
+  ['search','type','status'].forEach(k=>{const v=q.get(k);if(v)resetParams.set(k,v);});
+  const resetHref=`#/${page}`+(resetParams.toString()?'?'+resetParams.toString():'');
   // Реестр оборудования — строками-группами: общий номер и/или общее название.
   const data=expired?await api.getExpiredVerification(20,params.offset):await api.getInventory({...params,group:1});
   const tabs=el('nav',{class:'register-tabs','aria-label':'Категории имущества'},[['','Все имущество'],...choose(types)].map(([value,title])=>el('a',{href:`#/${page}${value?'?type='+value:''}`,'aria-current':activeType===value?'page':null},title)));
@@ -255,7 +259,7 @@ async function inventoryList(page,q) {
       key:g.key,label:g.title,cls:'group-row'+(index%2?' alt':''),alt:index%2===1,
       cells:[head,
         groupTypes.length===1?(types[groupTypes[0]]||groupTypes[0]):'разные',
-        g.inventory_number||(g.has_numbers?'№ у каждой':'—'),
+        g.inventory_number||(g.has_numbers?'индивидуальны':'—'),
         status('Группа'),
         groupLocations.length===1?groupLocations[0]:(groupLocations.length?`${groupLocations.length} каб.`:'—'),
         groupVerifications.length===0?'—':(groupVerifications.length===1?verification(groupVerifications[0]):'разные даты'),
@@ -268,7 +272,7 @@ async function inventoryList(page,q) {
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
-    table([sortHead('Объект','name'),sortHead('Категория','type'),sortHead('Инв. №','number'),sortHead('Пометки','marks'),sortHead('Расположение','location','desc'),sortHead('Поверка','verification'),sortHead('Состояние','status')],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':''),
+    table([sortHead('Объект','name'),sortHead('Категория','type'),sortHead('Инв. №','number'),sortHead('Пометки','marks'),sortHead('Расположение','location','desc'),sortHead('Поверка','verification'),sortHead('Состояние','status')],rows,'Записей пока нет: добавьте первый объект.',groups.length?'groups-table':'',{headerDblClick:()=>{if(q.get('sort'))location.hash=resetHref;},headerTitle:'Двойной клик по пустому месту шапки — сбросить сортировку'}),
     pager(page,q,data.paginated_metadata),el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
 }
 function verification(value) {return value ? status(date(value),new Date(value)<new Date()?'warn':'good') : '—';}
