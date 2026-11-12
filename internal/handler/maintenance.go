@@ -94,6 +94,7 @@ func (h *Handler) maintenanceGate(c *gin.Context) {
 		return
 	}
 	h.serveMaintenance(c)
+	c.Abort()
 }
 
 // serveMaintenance отдаёт встроенную страницу-заглушку.
