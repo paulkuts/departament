@@ -144,11 +144,25 @@ tbody tr:hover{background:#d7e6f4}
    подстроки наследуют цвет своей группы. Названия во всех строках начинаются с одного
    места: место под каретку зарезервировано отступом ячейки, поэтому при раскрытии
    ничего не сдвигается. */
+/* Фиксированная сетка: при раскрытии группы ширины колонок и шапка не меняются. */
+.groups-table > table{table-layout:fixed;width:100%}
+.groups-table > table > thead th:nth-child(1){width:24%}
+.groups-table > table > thead th:nth-child(2){width:12%}
+.groups-table > table > thead th:nth-child(3){width:11%}
+.groups-table > table > thead th:nth-child(4){width:14%}
+.groups-table > table > thead th:nth-child(5){width:12%}
+.groups-table > table > thead th:nth-child(6){width:11%}
+.groups-table > table > thead th:nth-child(7){width:16%}
+.groups-table > table > tbody > tr:not(.group-body) > td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .groups-table tbody tr{background:transparent}
 .groups-table tbody tr.group-row{cursor:pointer}
 .groups-table tbody tr.clickable{cursor:pointer}
-.groups-table tbody tr.group-row.alt,.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
-.groups-table tbody tr.group-row:hover,.groups-table tbody tr.group-row:hover+tr.group-body>td{background:#f8fbfd}
+/* Чередование самой таблицы — темнее, чем внутри групп. */
+.groups-table > table > tbody > tr.alt{background:#e8f0f8}
+.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
+/* Наведение ничего не подсвечивает: ни группу, ни пункт. */
+.groups-table > table > tbody > tr:hover{background:transparent}
+.groups-table > table > tbody > tr.alt:hover{background:#e8f0f8}
 .groups-table tbody tr>td:first-child{position:relative;padding-left:32px}
 .group-head{display:flex;align-items:center;gap:6px;min-width:0}
 .group-toggle{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:15px;line-height:1;pointer-events:none}
@@ -163,8 +177,8 @@ tbody tr:hover{background:#d7e6f4}
 .groups-table .group-table tr:last-child td{border-bottom:0}
 .groups-table .group-table tbody tr{background:transparent}
 /* Внутри группы чередование мягкое: второй цвет чуть светлее фона группы. */
+.groups-table .group-table tbody tr:hover{background:transparent}
 .groups-table .group-table tbody tr:nth-child(even){background:#f5f9fc}
 .groups-table tbody tr.group-body.alt .group-table tbody tr:nth-child(even){background:#f1f7fb}
-.groups-table .group-table tbody tr:hover{background:#eaf2f9}
 .groups-table .group-table tbody tr{cursor:pointer}
 .group-body[hidden]{display:none}

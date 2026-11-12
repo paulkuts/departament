@@ -1,5 +1,5 @@
-import {api} from './api.js?v=47';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=47';
+import {api} from './api.js?v=48';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,actions,sheet,details} from './dom.js?v=48';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -217,12 +217,12 @@ async function inventoryList(page,q) {
   const cells=x=>[el('span',{class:'record-name'},x.name),types[x.type]||x.type,x.inventory_number||'—',inventoryNumberMarks(x)||'—',x.location||'—',verification(x.next_verification_date),status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')];
   // Одиночный клик — мини-карточка, двойной — страница оборудования.
   const openCard=x=>{closeModal();navTo(`${page}/${x.id}`);};
-  const objectRow=x=>({cells:cells(x),onClick:()=>equipmentPreview(x,page),onDblClick:()=>openCard(x)});
+  const objectRow=(x,index)=>({cells:cells(x),cls:index%2?'alt':null,onClick:()=>equipmentPreview(x,page),onDblClick:()=>openCard(x)});
   const groups=data.groups||[];
   // Поиск нашёл ровно одну группу — показываем её сразу раскрытой.
   if(q.get('search')&&groups.length===1&&groups[0].count>1)expandedGroups.add(groups[0].key);
   const rows=groups.length?groups.map((g,index)=>{
-    if(g.count===1)return objectRow(g.members[0]);
+    if(g.count===1)return objectRow(g.members[0],index);
     const open=expandedGroups.has(g.key);
     // Пустые списки сервер может отдать как null — приводим к массивам.
     const groupTypes=g.types||[], groupLocations=g.locations||[], groupVerifications=g.next_verifications||[];
@@ -253,7 +253,7 @@ async function inventoryList(page,q) {
       expand:inner,open,
       onToggle:o=>{o?expandedGroups.add(g.key):expandedGroups.delete(g.key);}
     };
-  }):(data.inventory||[]).map(objectRow);
+  }):(data.inventory||[]).map((x,index)=>objectRow(x,index));
   const foot=groups.length?`${data.paginated_metadata?.total ?? 0} групп · ${data.objects_total ?? 0} объектов`:`${data.paginated_metadata?.total ?? 0} объектов`;
   return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
