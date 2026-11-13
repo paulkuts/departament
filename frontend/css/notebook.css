@@ -159,7 +159,7 @@ tbody tr:hover{background:#d7e6f4}
 .groups-table tbody tr.clickable{cursor:pointer}
 /* Чередование самой таблицы — темнее, чем внутри групп. */
 .groups-table > table > tbody > tr.alt{background:#e8f0f8}
-.groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
+.groups-table tbody tr.group-body.alt>td{background:#e8f0f8;box-shadow:inset 4px 0 0 #a8bdd2}
 /* Наведение ничего не подсвечивает: ни группу, ни пункт. */
 .groups-table > table > tbody > tr:hover{background:transparent}
 .groups-table > table > tbody > tr.alt:hover{background:#e8f0f8}
@@ -169,7 +169,7 @@ tbody tr:hover{background:#d7e6f4}
 .group-title{font-weight:650;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .group-count{color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
 .record-name{font-weight:650}
-.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 0;white-space:normal;box-shadow:inset 4px 0 0 #cddbe8}
+.groups-table tbody tr.group-body>td{background:#fff;padding:0 0 4px 0;white-space:normal;box-shadow:inset 4px 0 0 #a8bdd2}
 .groups-table tbody tr.group-body.alt>td{background:#e8f0f8}
 .groups-table .group-table{width:100%;border-collapse:collapse;table-layout:fixed}
 .groups-table .group-table td:nth-child(1){width:24%}

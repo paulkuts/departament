@@ -1,5 +1,5 @@
-import {api} from './api.js?v=52';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=52';
+import {api} from './api.js?v=53';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=53';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
