@@ -94,6 +94,9 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// «Итого» не отрывается от подписей: иначе Заведующий/Проверил уезжают
+	// на отдельный лист или разрываются между страницами.
+	totalRow = strings.Replace(totalRow, "<w:pPr>", "<w:pPr><w:keepNext/>", 1)
 	if !(sectEnd <= dataStart && dataEnd <= totalStart) {
 		return nil, errors.New("шаблон описи: строки-образцы идут не подряд")
 	}
@@ -120,16 +123,23 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 	}
 	s = s[:sectStart] + body.String() + s[totalEnd:]
 
-	// Дата сверху: «20.» «11.» «2026» либо пусто (вариант «как вторая дата в бланке»).
-	var day, month, year string
-	if !p.Date.IsZero() {
-		day = p.Date.Format("02") + "."
-		month = p.Date.Format("01") + "."
-		year = p.Date.Format("2006")
+	// Дата: два взаимоисключающих варианта бланка. «С сегодняшней датой» — только
+	// верхнее поле с числом; «без даты» — только нижняя строка с пропусками.
+	if p.Date.IsZero() {
+		s, err = replaceTable(s, "{{DAYDOT}}", "")
+		if err != nil {
+			return nil, err
+		}
+		s = strings.ReplaceAll(s, "{{DATEBLANK}}", esc("Дата: ___/___/_____"))
+	} else {
+		s = strings.ReplaceAll(s, "{{DAYDOT}}", p.Date.Format("02")+".")
+		s = strings.ReplaceAll(s, "{{MONTHDOT}}", p.Date.Format("01")+".")
+		s = strings.ReplaceAll(s, "{{YEAR}}", p.Date.Format("2006"))
+		s, err = replaceParagraph(s, "{{DATEBLANK}}", "")
+		if err != nil {
+			return nil, err
+		}
 	}
-	s = strings.ReplaceAll(s, "{{DAYDOT}}", day)
-	s = strings.ReplaceAll(s, "{{MONTHDOT}}", month)
-	s = strings.ReplaceAll(s, "{{YEAR}}", year)
 
 	s = strings.ReplaceAll(s, "{{ROOM}}", esc(strings.TrimSpace(p.Room)))
 
@@ -145,7 +155,7 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 		if name == "" {
 			name = "____________________"
 		}
-		checkPara = `<w:p><w:pPr><w:spacing w:before="360" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
+		checkPara = `<w:p><w:pPr><w:keepNext/><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
 			`<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>` +
 			`<w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>` +
 			`<w:t xml:space="preserve">Проверил ______________________ / ` + esc(name) + ` /</w:t></w:r></w:p>`
@@ -203,6 +213,27 @@ func rowBlock(doc, marker string) (row string, start, end int, err error) {
 	}
 	end = i + closeAt + len("</w:tr>")
 	return doc[start:end], start, end, nil
+}
+
+// replaceTable заменяет всю таблицу, внутри которой стоит метка.
+func replaceTable(doc, marker, repl string) (string, error) {
+	i := strings.Index(doc, marker)
+	if i < 0 {
+		return "", fmt.Errorf("шаблон описи: не найдена метка %s", marker)
+	}
+	start := strings.LastIndex(doc[:i], "<w:tbl ")
+	if alt := strings.LastIndex(doc[:i], "<w:tbl>"); alt > start {
+		start = alt
+	}
+	if start < 0 {
+		return "", fmt.Errorf("шаблон описи: метка %s вне таблицы", marker)
+	}
+	end := strings.Index(doc[i:], "</w:tbl>")
+	if end < 0 {
+		return "", fmt.Errorf("шаблон описи: таблица с меткой %s не закрыта", marker)
+	}
+	end = i + end + len("</w:tbl>")
+	return doc[:start] + repl + doc[end:], nil
 }
 
 // replaceParagraph заменяет абзац, в котором стоит метка, готовым XML
