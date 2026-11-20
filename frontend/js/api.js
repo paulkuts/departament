@@ -426,6 +426,50 @@ class ApiClient {
         setTimeout(() => URL.revokeObjectURL(url), 10000);
     }
 
+    // Аудитории, по которым есть объекты: список для описи кабинета.
+    async getLocations() {
+        return this.request('/inventory/locations');
+    }
+
+    // Опись имущества аудитории: Word-бланк по образцу кафедры. Файл отдаётся
+    // только с токеном, поэтому скачиваем blob и сохраняем под именем с сервера.
+    async downloadRoomOpis(params, _isRetry = false) {
+        const qs = new URLSearchParams();
+        Object.entries(params || {}).forEach(([k, v]) => {
+            if (v !== '' && v !== null && v !== undefined) qs.set(k, v);
+        });
+        const headers = {};
+        if (this.accessToken) headers['Authorization'] = `Bearer ${this.accessToken}`;
+
+        const res = await fetch(`${this.baseURL}/inventory/room-opis?${qs.toString()}`, {
+            credentials: 'include',
+            headers,
+        });
+
+        if (res.status === 401 && !_isRetry) {
+            const refreshed = await this.refresh();
+            if (refreshed) return this.downloadRoomOpis(params, true);
+            this.clearToken();
+            window.dispatchEvent(new Event('auth:logout'));
+            throw new Error('Сессия истекла');
+        }
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || `Ошибка ${res.status}`);
+        }
+
+        const name = fileNameFromHeader(res, 'опись.docx');
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        document.body.append(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        return name;
+    }
+
     // Скачивание фото идёт через fetch: файл отдаётся только с токеном в
     // заголовке, обычная ссылка не подойдёт.
     async downloadPhoto(photoId, filename, _isRetry = false) {

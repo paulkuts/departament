@@ -1,0 +1,281 @@
+// internal/report/room_opis.go
+//
+// Опись имущества аудитории — печатная форма по образцу кафедры (Word).
+// Форма не рисуется с нуля: берётся шаблон template-room-opis.docx с метками
+// (он вложен в бинарник), строки таблицы собираются из него же — поэтому
+// шрифт, рамки, ширины колонок и повтор шапки на каждой странице остаются
+// такими, какими их сделал материальный отдел.
+//
+// Метки в шаблоне:
+//   {{DAYDOT}} {{MONTHDOT}} {{YEAR}} — дата сверху (пустые строки, если дата не нужна)
+//   {{ROOM}}                         — номер аудитории в заголовке
+//   {{SECTION}}                      — строка-раздел таблицы (Оборудование/Мебель/Прочее)
+//   {{N}} {{NAME}} {{QTY}} {{INV}}    — строка позиции
+//   {{TOTALS}}                       — итог по разделу
+//   {{ZAV}}                          — ФИО заведующего лабораторией
+//   {{CHECKPARA}}                    — абзац «Проверил» (целиком заменяется или убирается)
+
+package report
+
+import (
+	"archive/zip"
+	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	_ "embed"
+)
+
+//go:embed template-room-opis.docx
+var roomTemplate []byte
+
+// Разделы формы — в том порядке, в котором они идут в бланке.
+const (
+	SectionEquipment = "Оборудование:"
+	SectionFurniture = "Мебель:"
+	SectionOther     = "Прочее:"
+)
+
+// RoomOpisItem — позиция описи: одна строка таблицы.
+type RoomOpisItem struct {
+	Section string
+	Name    string
+	Number  string
+	Qty     int
+}
+
+// RoomOpisParams — реквизиты описи.
+type RoomOpisParams struct {
+	Room      string    // номер аудитории, например «105»
+	Date      time.Time // дата формирования; нулевая — дата не печатается
+	Zav       string    // ФИО заведующего лабораторией
+	Checked   bool      // печатать ли строку «Проверил»
+	CheckName string    // ФИО проверившего
+	Items     []RoomOpisItem
+}
+
+// RoomOpisFileName — имя файла для скачивания.
+func RoomOpisFileName(p RoomOpisParams) string {
+	name := "Опись имущества аудитории " + strings.TrimSpace(p.Room)
+	if !p.Date.IsZero() {
+		name += " от " + p.Date.Format("02.01.2006")
+	}
+	return name + ".docx"
+}
+
+// BuildRoomOpis собирает готовый .docx по бланку кафедры.
+func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
+	if strings.TrimSpace(p.Room) == "" {
+		return nil, errors.New("не указана аудитория")
+	}
+	if len(p.Items) == 0 {
+		return nil, ErrRoomOpisEmpty
+	}
+
+	doc, err := readDocxPart(roomTemplate, "word/document.xml")
+	if err != nil {
+		return nil, err
+	}
+	s := string(doc)
+
+	sectRow, sectStart, sectEnd, err := rowBlock(s, "{{SECTION}}")
+	if err != nil {
+		return nil, err
+	}
+	dataRow, dataStart, dataEnd, err := rowBlock(s, "{{N}}")
+	if err != nil {
+		return nil, err
+	}
+	totalRow, totalStart, totalEnd, err := rowBlock(s, "{{TOTALS}}")
+	if err != nil {
+		return nil, err
+	}
+	if !(sectEnd <= dataStart && dataEnd <= totalStart) {
+		return nil, errors.New("шаблон описи: строки-образцы идут не подряд")
+	}
+
+	var body strings.Builder
+	for _, sec := range []string{SectionEquipment, SectionFurniture, SectionOther} {
+		items := filterSection(p.Items, sec)
+		if len(items) == 0 {
+			continue
+		}
+		body.WriteString(strings.ReplaceAll(sectRow, "{{SECTION}}", esc(sec)))
+		units := 0
+		for i, it := range items {
+			row := dataRow
+			row = strings.ReplaceAll(row, "{{N}}", strconv.Itoa(i+1))
+			row = strings.ReplaceAll(row, "{{NAME}}", esc(it.Name))
+			row = strings.ReplaceAll(row, "{{QTY}}", strconv.Itoa(it.Qty))
+			row = strings.ReplaceAll(row, "{{INV}}", esc(numberOrDash(it.Number)))
+			body.WriteString(row)
+			units += it.Qty
+		}
+		totals := fmt.Sprintf("позиций %d · единиц %d", len(items), units)
+		body.WriteString(strings.ReplaceAll(totalRow, "{{TOTALS}}", esc(totals)))
+	}
+	s = s[:sectStart] + body.String() + s[totalEnd:]
+
+	// Дата сверху: «20.» «11.» «2026» либо пусто (вариант «как вторая дата в бланке»).
+	var day, month, year string
+	if !p.Date.IsZero() {
+		day = p.Date.Format("02") + "."
+		month = p.Date.Format("01") + "."
+		year = p.Date.Format("2006")
+	}
+	s = strings.ReplaceAll(s, "{{DAYDOT}}", day)
+	s = strings.ReplaceAll(s, "{{MONTHDOT}}", month)
+	s = strings.ReplaceAll(s, "{{YEAR}}", year)
+
+	s = strings.ReplaceAll(s, "{{ROOM}}", esc(strings.TrimSpace(p.Room)))
+
+	zav := strings.TrimSpace(p.Zav)
+	if zav == "" {
+		zav = "____________________"
+	}
+	s = strings.ReplaceAll(s, "{{ZAV}}", esc(zav))
+
+	checkPara := ""
+	if p.Checked {
+		name := strings.TrimSpace(p.CheckName)
+		if name == "" {
+			name = "____________________"
+		}
+		checkPara = `<w:p><w:pPr><w:spacing w:before="360" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
+			`<w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>` +
+			`<w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr>` +
+			`<w:t xml:space="preserve">Проверил ______________________ / ` + esc(name) + ` /</w:t></w:r></w:p>`
+	}
+	s, err = replaceParagraph(s, "{{CHECKPARA}}", checkPara)
+	if err != nil {
+		return nil, err
+	}
+
+	return writeDocxPart(roomTemplate, "word/document.xml", []byte(s))
+}
+
+// ErrRoomOpisEmpty — в аудитории нет объектов: пустой бланк не печатаем.
+var ErrRoomOpisEmpty = errors.New("в этой аудитории нет объектов")
+
+func filterSection(items []RoomOpisItem, section string) []RoomOpisItem {
+	out := make([]RoomOpisItem, 0, len(items))
+	for _, it := range items {
+		if it.Section == section {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+func numberOrDash(n string) string {
+	n = strings.TrimSpace(n)
+	if n == "" {
+		return "—"
+	}
+	return n
+}
+
+// esc готовит текст для узла <w:t>: служебные символы XML и неразрывный пробел
+// не нужны, переводы строк в ячейке заменяются обычным пробелом.
+func esc(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\r", " ", "\n", " ")
+	return r.Replace(s)
+}
+
+// rowBlock находит строку таблицы, в которой стоит метка, и возвращает её XML
+// вместе с границами — по ним строка заменяется набором своих копий.
+func rowBlock(doc, marker string) (row string, start, end int, err error) {
+	i := strings.Index(doc, marker)
+	if i < 0 {
+		return "", 0, 0, fmt.Errorf("шаблон описи: нет метки %s", marker)
+	}
+	start = strings.LastIndex(doc[:i], "<w:tr ")
+	if start < 0 {
+		return "", 0, 0, fmt.Errorf("шаблон описи: метка %s вне строки таблицы", marker)
+	}
+	closeAt := strings.Index(doc[i:], "</w:tr>")
+	if closeAt < 0 {
+		return "", 0, 0, fmt.Errorf("шаблон описи: строка %s не закрыта", marker)
+	}
+	end = i + closeAt + len("</w:tr>")
+	return doc[start:end], start, end, nil
+}
+
+// replaceParagraph заменяет абзац, в котором стоит метка, готовым XML
+// (или убирает его, если замена пустая).
+func replaceParagraph(doc, marker, repl string) (string, error) {
+	i := strings.Index(doc, marker)
+	if i < 0 {
+		return doc, fmt.Errorf("шаблон описи: нет метки %s", marker)
+	}
+	start := strings.LastIndex(doc[:i], "<w:p ")
+	if alt := strings.LastIndex(doc[:i], "<w:p>"); alt > start {
+		start = alt
+	}
+	if start < 0 {
+		return doc, fmt.Errorf("шаблон описи: метка %s вне абзаца", marker)
+	}
+	closeAt := strings.Index(doc[i:], "</w:p>")
+	if closeAt < 0 {
+		return doc, fmt.Errorf("шаблон описи: абзац %s не закрыт", marker)
+	}
+	end := i + closeAt + len("</w:p>")
+	return doc[:start] + repl + doc[end:], nil
+}
+
+func readDocxPart(file []byte, name string) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(file), int64(len(file)))
+	if err != nil {
+		return nil, fmt.Errorf("open docx: %w", err)
+	}
+	for _, f := range zr.File {
+		if f.Name != name {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+		defer rc.Close()
+		return io.ReadAll(rc)
+	}
+	return nil, fmt.Errorf("в шаблоне нет %s", name)
+}
+
+func writeDocxPart(file []byte, name string, content []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(file), int64(len(file)))
+	if err != nil {
+		return nil, fmt.Errorf("open docx: %w", err)
+	}
+	var out bytes.Buffer
+	zw := zip.NewWriter(&out)
+	for _, f := range zr.File {
+		dst, err := zw.CreateHeader(&zip.FileHeader{Name: f.Name, Method: zip.Deflate})
+		if err != nil {
+			return nil, err
+		}
+		if f.Name == name {
+			if _, err := dst.Write(content); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.Copy(dst, rc); err != nil {
+			rc.Close()
+			return nil, err
+		}
+		rc.Close()
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}

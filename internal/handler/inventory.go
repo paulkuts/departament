@@ -2,8 +2,11 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"mitm-departament/internal/models"
+	"mitm-departament/internal/report"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +19,8 @@ type InventoryService interface {
 	Create(ctx context.Context, e *models.Inventory) error
 	GetByID(ctx context.Context, id int64) (*models.Inventory, error)
 	List(ctx context.Context, f models.InventoryFilter) (models.ListInventory, error)
+	RoomInventory(ctx context.Context, location string) ([]models.Inventory, error)
+	Locations(ctx context.Context) ([]string, error)
 	ListExpiredVerification(ctx context.Context, limit, offset int64) (models.ListInventory, error)
 	Update(ctx context.Context, e *models.Inventory) error
 	Delete(ctx context.Context, id int64) error
@@ -44,6 +49,8 @@ func (h *InventoryHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	{
 		Inventory.POST("", requireRoles(adminKey), h.create)
 		Inventory.GET("", h.list)
+		Inventory.GET("/locations", requireRoles(adminKey), h.locations)
+		Inventory.GET("/room-opis", requireRoles(adminKey), h.roomOpis)
 		Inventory.GET("/expired-verification", h.listExpiredVerification)
 		Inventory.PUT("/:id", requireRoles(adminKey), h.update)
 		Inventory.DELETE("/:id", requireRoles(adminKey), h.delete)
@@ -491,4 +498,106 @@ func (h *InventoryHandler) deleteNumber(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// locations — аудитории, по которым есть объекты реестра. Нужен списку
+// выбора в описи кабинета: он показывает только реальные кабинеты, а не
+// произвольный ввод.
+func (h *InventoryHandler) locations(c *gin.Context) {
+	list, err := h.svc.Locations(c.Request.Context())
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	if list == nil {
+		list = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"locations": list})
+}
+
+// roomOpis — опись имущества аудитории в Word. Доступ только администраторам:
+// в бланке инвентарные номера, а раздел материального отдела конфиденциальный.
+//
+// Параметры: location (номер аудитории), date=today|empty (печатать ли дату
+// формирования), zav (ФИО заведующего лабораторией), check=1 и check_name
+// (строка «Проверил» для бухгалтера).
+func (h *InventoryHandler) roomOpis(c *gin.Context) {
+	location := strings.TrimSpace(c.Query("location"))
+	if location == "" {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "не указана аудитория"})
+		return
+	}
+
+	items, err := h.svc.RoomInventory(c.Request.Context(), location)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+
+	params := report.RoomOpisParams{
+		Room:      location,
+		Zav:       c.Query("zav"),
+		Checked:   c.Query("check") == "1",
+		CheckName: c.Query("check_name"),
+		Items:     groupRoomItems(items),
+	}
+	if c.Query("date") != "empty" {
+		params.Date = time.Now().In(msk)
+	}
+
+	file, err := report.BuildRoomOpis(params)
+	if err != nil {
+		if errors.Is(err, report.ErrRoomOpisEmpty) {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "в этой аудитории нет объектов"})
+			return
+		}
+		handleError(c, err)
+		return
+	}
+
+	extendDeadlines(c, downloadTimeout)
+
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Content-Disposition", `attachment; filename="room-opis.docx"; filename*=UTF-8''`+url.PathEscape(report.RoomOpisFileName(params)))
+	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", file)
+}
+
+// groupRoomItems собирает позиции описи: одинаковые наименование и номер
+// (комплект) идут одной строкой с количеством, разные номера — отдельными.
+func groupRoomItems(items []models.Inventory) []report.RoomOpisItem {
+	type key struct {
+		section string
+		name    string
+		number  string
+	}
+
+	out := make([]report.RoomOpisItem, 0, len(items))
+	seen := make(map[key]int, len(items))
+	for _, it := range items {
+		section := roomSection(it.Type)
+		number := ""
+		if it.InventoryNumber != nil {
+			number = strings.TrimSpace(*it.InventoryNumber)
+		}
+		k := key{section: section, name: it.NameNormalized, number: models.CanonicalInventoryNumber(number)}
+		if i, ok := seen[k]; ok {
+			out[i].Qty++
+			continue
+		}
+		seen[k] = len(out)
+		out = append(out, report.RoomOpisItem{Section: section, Name: it.Name, Number: number, Qty: 1})
+	}
+	return out
+}
+
+// roomSection переводит категорию реестра в раздел бланка описи.
+func roomSection(t string) string {
+	switch t {
+	case "equipment":
+		return report.SectionEquipment
+	case "inventory":
+		return report.SectionFurniture
+	default:
+		return report.SectionOther
+	}
 }

@@ -1,5 +1,5 @@
-import {api} from './api.js?v=54';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=54';
+import {api} from './api.js?v=55';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=55';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -289,7 +289,7 @@ async function inventoryList(page,q) {
       else{loadAll.disabled=false;loadAll.textContent='Загрузить все';}
     }catch(error){loadAll.disabled=false;loadAll.textContent='Загрузить все';toast(error.message||'Не удалось загрузить все записи');}
   });
-  return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[button('Добавить объект',()=>inventoryForm(null,page),'primary')]:[])),tabs,sheet(
+  return el('div',{},head(labels[page],page==='equipment'?'Приборы, доступность, поверки и передача во временное пользование.':'Мебель, химикаты, лабораторная посуда и другое имущество кафедры.',...(admin()?[page==='equipment'?button('Опись кабинета',()=>roomOpisDialog(),'navy'):null,button('Добавить объект',()=>inventoryForm(null,page),'primary')].filter(Boolean):[])),tabs,sheet(
     filterBar(page,q,[input('search','Поиск',q.get('search')||'',{placeholder:'Наименование или инвентарный номер…'}),select('status','Доступность',q.get('status')||'',[['','Любая'],['available','Доступно'],['unavailable','Недоступно']])]),
     expired?body(status('Показаны просроченные поверки','warn'),link('Снять фильтр',`#/${page}`)):null,
     tblEl,loadAll,el('div',{class:'sheet-foot'},el('span',{},foot))),link('Показать просроченные поверки',`#/${page}?expired=1`,'btn quiet'));
@@ -631,6 +631,32 @@ async function converter() {
   loadHistory();
   return page;
 }
+// Опись имущества аудитории: Word-бланк по образцу кафедры. ФИО заведующего
+// и проверившего запоминаем в браузере (это персональные данные — на сервере
+// их не храним). Дата по умолчанию — день скачивания.
+async function roomOpisDialog(){
+  let rooms=[];
+  try{rooms=(await api.getLocations()).locations||[];}catch(err){toast(err.message);return;}
+  if(!rooms.length){toast('В реестре нет аудиторий');return;}
+  const savedZav=localStorage.getItem('roomOpisZav')||'';
+  const savedCheck=localStorage.getItem('roomOpisCheckName')||'';
+  const node=form([
+    select('location','Аудитория',rooms[0],rooms.map(r=>[r,r])),
+    select('date','Дата в бланке','today',[['today','Дата формирования'],['empty','Без даты (заполнят от руки)']]),
+    input('zav','Заведующий лабораторией, ФИО',savedZav,{placeholder:'Фамилия И. О.'}),
+    input('check','Проверил (бухгалтер)',!!savedCheck,{type:'checkbox'}),
+    input('check_name','ФИО проверившего',savedCheck,{placeholder:'заполните, если ставите галочку'})
+  ],'Скачать опись',async data=>{
+    const zav=String(data.zav||'').trim(), checkName=String(data.check_name||'').trim();
+    localStorage.setItem('roomOpisZav',zav);
+    localStorage.setItem('roomOpisCheckName',checkName);
+    await api.downloadRoomOpis({location:data.location,date:data.date==='empty'?'empty':'today',zav,check:data.check==='on'?'1':'',check_name:checkName});
+    toast('Опись скачана');
+    closeModal();
+  });
+  modal('Опись имущества аудитории',node);
+}
+
 function inventoryNumberForm(x) {
   // Сумма строки не вводится руками: она считается как цена × количество, и при
   // правке количества пересчитывается (и в форме, и на сервере).

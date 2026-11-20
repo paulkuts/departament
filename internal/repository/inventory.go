@@ -244,3 +244,24 @@ func (r *InventoryRepo) BackfillNames(ctx context.Context) error {
 	}
 	return nil
 }
+
+// ListByLocation — все объекты одной аудитории. Нужен описи кабинета: она
+// собирается по расположению, а не по фильтрам реестра.
+func (r *InventoryRepo) ListByLocation(ctx context.Context, location string) ([]models.Inventory, error) {
+	var items []models.Inventory
+	query := `SELECT ` + inventoryColumns + ` FROM inventory WHERE location = ? ORDER BY type, name_normalized, inventory_number`
+	if err := r.db.SelectContext(ctx, &items, query, location); err != nil {
+		return nil, fmt.Errorf("list inventory by location: %w", err)
+	}
+	return items, nil
+}
+
+// Locations — список аудиторий, которые встречаются у объектов реестра.
+func (r *InventoryRepo) Locations(ctx context.Context) ([]string, error) {
+	var out []string
+	query := `SELECT DISTINCT location FROM inventory WHERE TRIM(location) <> '' ORDER BY location`
+	if err := r.db.SelectContext(ctx, &out, query); err != nil {
+		return nil, fmt.Errorf("list locations: %w", err)
+	}
+	return out, nil
+}

@@ -19,6 +19,8 @@ type EquipmentRepo interface {
 	GetByInventoryNumber(ctx context.Context, invNumber string) (*models.Inventory, error)
 	List(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, int64, error)
 	ListAll(ctx context.Context, f models.InventoryFilter) ([]models.Inventory, error)
+	ListByLocation(ctx context.Context, location string) ([]models.Inventory, error)
+	Locations(ctx context.Context) ([]string, error)
 	NumberIndex(ctx context.Context) ([]models.InventoryNumberIndex, error)
 	ListExpiredVerification(ctx context.Context, limit, offset int64) ([]models.Inventory, int64, error)
 	Update(ctx context.Context, e *models.Inventory) error
@@ -622,4 +624,18 @@ func (s *EquipmentService) LookupNumber(ctx context.Context, number string) (*mo
 		return nil, nil
 	}
 	return s.numbers.GetByNumber(ctx, number)
+}
+
+// RoomInventory — объекты аудитории для описи кабинета.
+func (s *EquipmentService) RoomInventory(ctx context.Context, location string) ([]models.Inventory, error) {
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, errors.New("не указана аудитория")
+	}
+	return s.repo.ListByLocation(ctx, location)
+}
+
+// Locations — аудитории, по которым есть объекты в реестре.
+func (s *EquipmentService) Locations(ctx context.Context) ([]string, error) {
+	return s.repo.Locations(ctx)
 }
