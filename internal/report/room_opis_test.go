@@ -101,6 +101,16 @@ func TestBuildRoomOpisStructure(t *testing.T) {
 	if strings.Contains(doc, "___/___/_____") {
 		t.Error("при заполненной дате нижняя пустая строка печататься не должна")
 	}
+	// Строка раздела — одна ячейка на всю ширину таблицы, надпись внутри
+	// остаётся по центру левой части (правый отступ абзаца).
+	i := strings.Index(doc, "Оборудование:")
+	row := doc[strings.LastIndex(doc[:i], "<w:tr"):strings.Index(doc[i:], "</w:tr>")+i+len("</w:tr>")]
+	if got := strings.Count(row, "<w:tc>"); got != 1 {
+		t.Errorf("в строке раздела %d ячеек, ожидалась 1", got)
+	}
+	if !strings.Contains(row, `<w:gridSpan w:val="4"/>`) || !strings.Contains(row, `<w:ind w:right="4303"/>`) {
+		t.Error("строка раздела не объединена на всю ширину или потеряла отступ надписи")
+	}
 	// Каждая ячейка обязана быть выровнена по центру по высоте.
 	cells := strings.Count(doc, "<w:tcPr>")
 	valigns := strings.Count(doc, `<w:vAlign w:val="center"/>`)
