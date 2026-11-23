@@ -46,6 +46,7 @@ type RoomOpisItem struct {
 	Name    string
 	Number  string
 	Qty     int
+	Unit    string // единица измерения: «шт», «кг», «компл»; пусто — штуки
 }
 
 // RoomOpisParams — реквизиты описи.
@@ -113,7 +114,7 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 			row := dataRow
 			row = strings.ReplaceAll(row, "{{N}}", strconv.Itoa(i+1))
 			row = strings.ReplaceAll(row, "{{NAME}}", esc(it.Name))
-			row = strings.ReplaceAll(row, "{{QTY}}", strconv.Itoa(it.Qty))
+			row = strings.ReplaceAll(row, "{{QTY}}", esc(qtyLabel(it)))
 			row = strings.ReplaceAll(row, "{{INV}}", esc(numberOrDash(it.Number)))
 			body.WriteString(row)
 			units += it.Qty
@@ -123,8 +124,9 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 	}
 	s = s[:sectStart] + body.String() + s[totalEnd:]
 
-	// Дата: два взаимоисключающих варианта бланка. «С сегодняшней датой» — только
-	// верхнее поле с числом; «без даты» — только нижняя строка с пропусками.
+	// Дата: два взаимоисключающих варианта бланка. «С датой» — только верхняя
+	// таблица (одна ячейка со слитной датой), «без даты» — только нижняя строка
+	// с пропусками.
 	if p.Date.IsZero() {
 		s, err = replaceTable(s, "{{DAYDOT}}", "")
 		if err != nil {
@@ -132,9 +134,7 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 		}
 		s = strings.ReplaceAll(s, "{{DATEBLANK}}", esc("Дата: ___/___/_____"))
 	} else {
-		s = strings.ReplaceAll(s, "{{DAYDOT}}", p.Date.Format("02")+".")
-		s = strings.ReplaceAll(s, "{{MONTHDOT}}", p.Date.Format("01")+".")
-		s = strings.ReplaceAll(s, "{{YEAR}}", p.Date.Format("2006"))
+		s = strings.ReplaceAll(s, "{{DAYDOT}}", esc(p.Date.Format("02.01.2006")))
 		s, err = replaceParagraph(s, "{{DATEBLANK}}", "")
 		if err != nil {
 			return nil, err
@@ -165,6 +165,17 @@ func BuildRoomOpis(p RoomOpisParams) ([]byte, error) {
 		return nil, err
 	}
 
+	// Текст в ячейках — по центру по высоте строки: иначе у позиций с длинным
+	// наименованием (2–3 строки) номер и инвентарный номер прилипают к верху.
+	s = centerCellsVertically(s)
+
+	// Подпись заведующего — на одну пустую строку ниже: так на бланке остаётся
+	// место для печати/подписи от руки.
+	s, err = insertBlankLineBefore(s, "Заведующий лабораторией")
+	if err != nil {
+		return nil, err
+	}
+
 	return writeDocxPart(roomTemplate, "word/document.xml", []byte(s))
 }
 
@@ -189,11 +200,73 @@ func numberOrDash(n string) string {
 	return n
 }
 
+// qtyLabel — количество с единицей измерения: «3 шт.», «12 кг».
+// В бланке всегда с точкой сокращения, как принято в документах кафедры.
+func qtyLabel(it RoomOpisItem) string {
+	u := strings.TrimSpace(it.Unit)
+	if u == "" {
+		u = "шт"
+	}
+	if !strings.HasSuffix(u, ".") {
+		u += "."
+	}
+	return strconv.Itoa(it.Qty) + " " + u
+}
+
 // esc готовит текст для узла <w:t>: служебные символы XML и неразрывный пробел
 // не нужны, переводы строк в ячейке заменяются обычным пробелом.
 func esc(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\r", " ", "\n", " ")
 	return r.Replace(s)
+}
+
+// insertBlankLineBefore вставляет пустой абзац перед абзацем с меткой-текстом.
+// Нужен, чтобы сдвинуть подпись на одну строку, не трогая шаблон.
+func insertBlankLineBefore(doc, marker string) (string, error) {
+	i := strings.Index(doc, marker)
+	if i < 0 {
+		return doc, fmt.Errorf("шаблон описи: нет абзаца %q", marker)
+	}
+	start := strings.LastIndex(doc[:i], "<w:p ")
+	if alt := strings.LastIndex(doc[:i], "<w:p>"); alt > start {
+		start = alt
+	}
+	if start < 0 {
+		return doc, fmt.Errorf("шаблон описи: абзац %q вне абзаца", marker)
+	}
+	blank := `<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:p>`
+	return doc[:start] + blank + doc[start:], nil
+}
+
+// centerCellsVertically ставит <w:vAlign w:val="center"/> каждой ячейке таблицы,
+// у которой выравнивание не задано. Шаблон местами уже содержит vAlign (шапка),
+// поэтому дубли не добавляем. Работает по уже собранному XML — покрывает и
+// размноженные строки позиций, и таблицу даты.
+func centerCellsVertically(doc string) string {
+	doc = strings.ReplaceAll(doc, "<w:tcPr/>", `<w:tcPr><w:vAlign w:val="center"/></w:tcPr>`)
+	var b strings.Builder
+	b.Grow(len(doc) + 512)
+	rest := doc
+	for {
+		i := strings.Index(rest, "<w:tcPr>")
+		if i < 0 {
+			b.WriteString(rest)
+			return b.String()
+		}
+		b.WriteString(rest[:i])
+		rest = rest[i:]
+		end := strings.Index(rest, "</w:tcPr>")
+		if end < 0 { // битый XML — оставляем как есть, его поймает проверка
+			b.WriteString(rest)
+			return b.String()
+		}
+		block := rest[:end+len("</w:tcPr>")]
+		if !strings.Contains(block, "<w:vAlign") {
+			block = `<w:tcPr><w:vAlign w:val="center"/>` + rest[len("<w:tcPr>"):end+len("</w:tcPr>")]
+		}
+		b.WriteString(block)
+		rest = rest[end+len("</w:tcPr>"):]
+	}
 }
 
 // rowBlock находит строку таблицы, в которой стоит метка, и возвращает её XML

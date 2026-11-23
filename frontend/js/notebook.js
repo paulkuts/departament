@@ -1,5 +1,5 @@
-import {api} from './api.js?v=56';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=56';
+import {api} from './api.js?v=57';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=57';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -640,21 +640,38 @@ async function roomOpisDialog(){
   if(!rooms.length){toast('В реестре нет аудиторий');return;}
   const savedZav=localStorage.getItem('roomOpisZav')||'';
   const savedCheck=localStorage.getItem('roomOpisCheckName')||'';
+  const savedMode=localStorage.getItem('roomOpisDateMode')||'today';
+  const savedDate=localStorage.getItem('roomOpisDate')||'';
+  const dateMode=select('date','Дата в бланке',['today','custom','empty'].includes(savedMode)?savedMode:'today',[['today','Дата формирования (сегодня)'],['custom','Своя дата'],['empty','Без даты (заполнят от руки)']]);
+  const customDate=input('date_custom','Дата для бланка',savedDate||todayISO(),{type:'date'});
+  const customHandler=()=>{const custom=dateMode.querySelector('select').value==='custom';customDate.style.display=custom?'':'none';};
+  dateMode.querySelector('select').addEventListener('change',customHandler);customHandler();
   const node=form([
     select('location','Аудитория',rooms[0],rooms.map(r=>[r,r])),
-    select('date','Дата в бланке','today',[['today','Дата формирования'],['empty','Без даты (заполнят от руки)']]),
+    dateMode,
+    customDate,
     input('zav','Заведующий лабораторией, ФИО',savedZav,{placeholder:'Фамилия И. О.'}),
     input('check','Проверил (бухгалтер)',!!savedCheck,{type:'checkbox'}),
     input('check_name','ФИО проверившего',savedCheck,{placeholder:'заполните, если ставите галочку'})
   ],'Скачать опись',async data=>{
     const zav=String(data.zav||'').trim(), checkName=String(data.check_name||'').trim();
+    const mode=data.date==='custom'?'custom':data.date==='empty'?'empty':'today';
+    const custom=String(data.date_custom||'').trim();
+    if(mode==='custom'&&!custom)throw new Error('Выберите дату для бланка');
     localStorage.setItem('roomOpisZav',zav);
     localStorage.setItem('roomOpisCheckName',checkName);
-    await api.downloadRoomOpis({location:data.location,date:data.date==='empty'?'empty':'today',zav,check:data.check==='on'?'1':'',check_name:checkName});
+    localStorage.setItem('roomOpisDateMode',mode);
+    if(custom)localStorage.setItem('roomOpisDate',custom);
+    await api.downloadRoomOpis({location:data.location,date:mode==='custom'?custom:mode,zav,check:data.check==='on'?'1':'',check_name:checkName});
     toast('Опись скачана');
     closeModal();
   });
   modal('Опись имущества аудитории',node);
+}
+// Сегодняшняя дата в местном поясе браузера — для поля «Своя дата».
+function todayISO(){
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
 }
 
 function inventoryNumberForm(x) {

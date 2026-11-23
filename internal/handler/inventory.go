@@ -539,10 +539,22 @@ func (h *InventoryHandler) roomOpis(c *gin.Context) {
 		Zav:       c.Query("zav"),
 		Checked:   c.Query("check") == "1",
 		CheckName: c.Query("check_name"),
-		Items:     groupRoomItems(items),
+		Items:     h.roomItems(c.Request.Context(), items),
 	}
-	if c.Query("date") != "empty" {
+	// Дата: today (по умолчанию) — день скачивания, empty — без даты,
+	// YYYY-MM-DD — выбранная вручную дата (печатается в бланке).
+	switch raw := strings.TrimSpace(c.Query("date")); raw {
+	case "", "today":
 		params.Date = time.Now().In(msk)
+	case "empty":
+		// дата не печатается
+	default:
+		d, err := time.ParseInLocation("2006-01-02", raw, msk)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, ErrorResponse{Error: "неверная дата: нужен формат ГГГГ-ММ-ДД"})
+			return
+		}
+		params.Date = d
 	}
 
 	file, err := report.BuildRoomOpis(params)
@@ -560,6 +572,32 @@ func (h *InventoryHandler) roomOpis(c *gin.Context) {
 	c.Header("Cache-Control", "private, no-store")
 	c.Header("Content-Disposition", `attachment; filename="room-opis.docx"; filename*=UTF-8''`+url.PathEscape(report.RoomOpisFileName(params)))
 	c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", file)
+}
+
+// roomItems собирает строки описи и подставляет единицу измерения из описи
+// материального отдела. Номера объектов и номера матотдела — разные учётные
+// системы, совпадение бывает не всегда; без него считаем позицию штучной
+// (по умолчанию "шт." ставит сам генератор бланка).
+func (h *InventoryHandler) roomItems(ctx context.Context, items []models.Inventory) []report.RoomOpisItem {
+	out := groupRoomItems(items)
+	units := make(map[string]string)
+	for i := range out {
+		num := strings.TrimSpace(out[i].Number)
+		if num == "" {
+			continue
+		}
+		key := models.CanonicalInventoryNumber(num)
+		unit, ok := units[key]
+		if !ok {
+			unit = ""
+			if found, err := h.svc.LookupNumber(ctx, num); err == nil && found != nil {
+				unit = strings.TrimSpace(found.Unit)
+			}
+			units[key] = unit
+		}
+		out[i].Unit = unit
+	}
+	return out
 }
 
 // groupRoomItems собирает позиции описи: одинаковые наименование и номер

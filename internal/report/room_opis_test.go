@@ -5,10 +5,21 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
+
+// plainText склеивает текст всех узлов <w:t>: заголовок разбит на прогоны
+// (номер аудитории подчёркнут), поэтому искать фразу в сыром XML нельзя.
+func plainText(doc string) string {
+	var b strings.Builder
+	for _, m := range regexp.MustCompile(`<w:t[^>]*>([^<]*)</w:t>`).FindAllStringSubmatch(doc, -1) {
+		b.WriteString(m[1])
+	}
+	return b.String()
+}
 
 func buildForTest(t *testing.T, p RoomOpisParams) string {
 	t.Helper()
@@ -45,12 +56,19 @@ func TestBuildRoomOpisStructure(t *testing.T) {
 		},
 	})
 
+	text := plainText(doc)
+	if !strings.Contains(text, "Опись имущества аудитории № 105") {
+		t.Error("номер аудитории не попал в заголовок")
+	}
+	if !strings.Contains(doc, `<w:u w:val="single"/>`) {
+		t.Error("номер аудитории должен быть подчёркнут")
+	}
 	for _, want := range []string{
-		"Опись имущества аудитории № 105",
 		"20.", "11.", "2026",
 		"Оборудование:", "Мебель:",
 		"Микроскоп", "1050005442", "Весы", "Стол",
 		"позиций 2 · единиц 3", "позиций 1 · единиц 3",
+		"1 шт.", "2 шт.", "3 шт.",
 		"Иванов И.И.",
 	} {
 		if !strings.Contains(doc, want) {
@@ -83,6 +101,12 @@ func TestBuildRoomOpisStructure(t *testing.T) {
 	if strings.Contains(doc, "___/___/_____") {
 		t.Error("при заполненной дате нижняя пустая строка печататься не должна")
 	}
+	// Каждая ячейка обязана быть выровнена по центру по высоте.
+	cells := strings.Count(doc, "<w:tcPr>")
+	valigns := strings.Count(doc, `<w:vAlign w:val="center"/>`)
+	if cells != valigns {
+		t.Errorf("ячеек %d, из них по центру по высоте %d", cells, valigns)
+	}
 }
 
 func TestBuildRoomOpisEmptyDateAndCheck(t *testing.T) {
@@ -111,7 +135,7 @@ func TestBuildRoomOpisEmptyDateAndCheck(t *testing.T) {
 	if !strings.Contains(doc, "Прочее:") {
 		t.Error("раздел «Прочее» не напечатан")
 	}
-	if !strings.Contains(doc, "№ 026/025") {
+	if !strings.Contains(plainText(doc), "№ 026/025") {
 		t.Error("номер аудитории не попал в заголовок")
 	}
 }
@@ -129,5 +153,24 @@ func TestRoomOpisFileName(t *testing.T) {
 	}
 	if got := RoomOpisFileName(RoomOpisParams{Room: "105"}); got != "Опись имущества аудитории 105.docx" {
 		t.Errorf("имя файла без даты %q", got)
+	}
+}
+
+func TestQtyLabel(t *testing.T) {
+	cases := []struct {
+		qty  int
+		unit string
+		want string
+	}{
+		{3, "", "3 шт."},
+		{3, "шт", "3 шт."},
+		{12, "кг", "12 кг."},
+		{2, "компл.", "2 компл."},
+		{1, "пог. м", "1 пог. м."},
+	}
+	for _, c := range cases {
+		if got := qtyLabel(RoomOpisItem{Qty: c.qty, Unit: c.unit}); got != c.want {
+			t.Errorf("qtyLabel(%d, %q) = %q, ожидалось %q", c.qty, c.unit, got, c.want)
+		}
 	}
 }
