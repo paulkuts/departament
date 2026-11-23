@@ -409,8 +409,6 @@ func (h *InventoryHandler) bindNumber(c *gin.Context) (*models.InventoryNumber, 
 		DocumentNumber: strings.TrimSpace(req.DocumentNumber),
 		Unit:           strings.TrimSpace(req.Unit),
 		Quantity:       req.Quantity,
-		Price:    req.Price,
-		Amount:   req.Amount,
 	}
 	canonical := models.CanonicalInventoryNumber(item.Number)
 	if canonical == "" || strings.Trim(canonical, "/") == "" {
@@ -476,7 +474,7 @@ func (h *InventoryHandler) importNumbers(c *gin.Context) {
 	for _, it := range req.Items {
 		items = append(items, models.InventoryNumber{
 			Number: it.Number, Name: it.Name, Source: req.Source, DocumentNumber: it.DocumentNumber,
-			Unit: it.Unit, Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
+			Unit: it.Unit, Quantity: it.Quantity,
 		})
 	}
 	added, updated, total, err := h.svc.ImportNumbers(c.Request.Context(), items, req.Replace)

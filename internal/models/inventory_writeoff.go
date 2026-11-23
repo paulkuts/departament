@@ -24,14 +24,11 @@ type InventoryWriteoff struct {
 	Unit           string   `json:"unit" db:"unit"`
 	DocumentNumber string   `json:"document_number" db:"document_number"`
 	ItemQuantity   *float64 `json:"item_quantity" db:"item_quantity"`
-	Price          *float64 `json:"price" db:"price"`
 }
 
-// WriteoffResult — итог применения списаний: сколько позиций, сколько единиц
-// и на какую сумму ушло из описи. Показывается администратору после нажатия
-// «Применить списание».
+// WriteoffResult — итог применения списаний: сколько позиций и сколько единиц
+// ушло из описи. Показывается администратору после нажатия «Применить списание».
 type WriteoffResult struct {
 	Items    int64   `json:"items" db:"items"`
 	Quantity float64 `json:"quantity" db:"quantity"`
-	Amount   float64 `json:"amount" db:"amount"`
 }

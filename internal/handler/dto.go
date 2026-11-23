@@ -366,14 +366,12 @@ type InventoryNumberResponse struct {
 	DocumentNumber string   `json:"document_number"`
 	Unit           string   `json:"unit"`
 	Quantity *float64 `json:"quantity"`
-	Price    *float64 `json:"price"`
-	Amount   *float64 `json:"amount"`
 }
 
 func ToInventoryNumberResponse(it *models.InventoryNumber) InventoryNumberResponse {
 	return InventoryNumberResponse{
 		ID: it.ID, Number: it.Number, Name: it.Name, DocumentNumber: it.DocumentNumber,
-		Unit: it.Unit, Quantity: it.Quantity, Price: it.Price, Amount: it.Amount,
+		Unit: it.Unit, Quantity: it.Quantity,
 	}
 }
 
@@ -415,11 +413,10 @@ func ToInventoryNumberHints(items []models.InventoryNumber) []InventoryNumberHin
 type InventorySummaryResponse struct {
 	Count    int64   `json:"count"`
 	Quantity float64 `json:"quantity"`
-	Amount   float64 `json:"amount"`
 }
 
 func ToInventorySummaryResponse(s models.InventorySummary) InventorySummaryResponse {
-	return InventorySummaryResponse{Count: s.Count, Quantity: s.Quantity, Amount: s.Amount}
+	return InventorySummaryResponse{Count: s.Count, Quantity: s.Quantity}
 }
 
 // InventoryNumberRequest — новая строка инвентаризации или правка существующей.
@@ -431,8 +428,6 @@ type InventoryNumberRequest struct {
 	DocumentNumber string   `json:"document_number" binding:"max=50"`
 	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
-	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
-	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
 }
 
 // InventoryNumberItem — одна строка загружаемой таблицы описи.
@@ -442,8 +437,6 @@ type InventoryNumberItem struct {
 	DocumentNumber string   `json:"document_number" binding:"max=50"`
 	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
-	Price    *float64 `json:"price" binding:"omitempty,gte=0"`
-	Amount   *float64 `json:"amount" binding:"omitempty,gte=0"`
 }
 
 // ImportInventoryNumbersRequest — загрузка таблицы номеров.
@@ -474,7 +467,6 @@ type WriteoffResponse struct {
 	Unit           string   `json:"unit"`
 	DocumentNumber string   `json:"document_number"`
 	ItemQuantity   *float64 `json:"item_quantity"`
-	Price          *float64 `json:"price"`
 }
 
 func ToWriteoffResponse(w *models.InventoryWriteoff) WriteoffResponse {
@@ -490,7 +482,6 @@ func ToWriteoffResponse(w *models.InventoryWriteoff) WriteoffResponse {
 		Unit:           w.Unit,
 		DocumentNumber: w.DocumentNumber,
 		ItemQuantity:   w.ItemQuantity,
-		Price:          w.Price,
 	}
 }
 
@@ -513,9 +504,8 @@ type WriteoffRequest struct {
 type WriteoffResultResponse struct {
 	Items    int64   `json:"items"`
 	Quantity float64 `json:"quantity"`
-	Amount   float64 `json:"amount"`
 }
 
 func ToWriteoffResultResponse(r models.WriteoffResult) WriteoffResultResponse {
-	return WriteoffResultResponse{Items: r.Items, Quantity: r.Quantity, Amount: r.Amount}
+	return WriteoffResultResponse{Items: r.Items, Quantity: r.Quantity}
 }

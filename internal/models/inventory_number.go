@@ -18,8 +18,6 @@ type InventoryNumber struct {
 	DocumentNumber string   `json:"document_number" db:"document_number"`
 	Unit           string   `json:"unit" db:"unit"`
 	Quantity       *float64 `json:"quantity" db:"quantity"`
-	Price          *float64 `json:"price" db:"price"`
-	Amount         *float64 `json:"amount" db:"amount"`
 	CreatedAt      string   `json:"created_at" db:"created_at"`
 }
 
@@ -29,7 +27,6 @@ type InventoryNumber struct {
 type InventorySummary struct {
 	Count    int64   `json:"count" db:"count"`
 	Quantity float64 `json:"quantity" db:"quantity"`
-	Amount   float64 `json:"amount" db:"amount"`
 }
 
 // NormalizeInventoryNumber приводит номер к сравнимому виду: верхний регистр,

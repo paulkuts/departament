@@ -1,5 +1,5 @@
-import {api} from './api.js?v=57';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=57';
+import {api} from './api.js?v=58';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=58';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -307,24 +307,14 @@ async function inventoryRegistry(q) {
   if(tab==='writeoff') return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.'),tabs,await inventoryWriteoff(drafts,marked));
   const limitRaw=(q.get('limit')||'10')==='all'?'all':((q.get('limit')==='25')?'25':'10');
   const perPage=limitRaw==='all'?0:Number(limitRaw);
-  const [list,summary]=await Promise.all([api.getInventoryNumbers(search,sort),api.getInventorySummary(search)]);
+  const list=await api.getInventoryNumbers(search,sort);
   const items=list||[];
   const total=items.length;
   const pages=perPage?Math.max(1,Math.ceil(total/perPage)):1;
   const page=perPage?Math.min(pages,Math.max(1,Math.floor((Number(q.get('offset'))||0)/perPage)+1)):1;
   const first=perPage?(page-1)*perPage:0;
   const shown=perPage?items.slice(first,first+perPage):items;
-  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',numText(x.price),numText(x.amount),rashMark(x,marked),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
-  const s=summary||{};
-  const totals=el('div',{class:'summary-line'},
-    el('div',{},el('strong',{},String(s.count ?? items.length)),el('span',{},search?'строк найдено':'строк в описи')),
-    el('div',{},el('strong',{},numText(s.quantity)),el('span',{},'единиц всего')),
-    el('div',{},el('strong',{},`${numText(s.amount)} ₽`),el('span',{},search?'итог по поиску':'итог по описи')));
-  const box=el('div',{class:'registry-total'});box.append(totals);
-  let showTotals=true;try{showTotals=localStorage.getItem('inventoryTotals')!=='off';}catch{}
-  box.style.display=showTotals?'':'none';
-  const toggle=input('show_totals','Показывать итог',showTotals,{type:'checkbox'});
-  toggle.querySelector('input').addEventListener('change',event=>{const on=event.currentTarget.checked;box.style.display=on?'':'none';try{localStorage.setItem('inventoryTotals',on?'on':'off');}catch{}});
+  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',rashMark(x,marked),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
   // Постраничный вывод: 10 записей по умолчанию, 25 или весь список целиком.
   const goTo=offset=>{const next=new URLSearchParams(q);next.set('limit',limitRaw);offset>0?next.set('offset',String(offset)):next.delete('offset');navTo(`inventory?${next}`);};
   const perField=select('limit','На странице',limitRaw,[['10','10 записей'],['25','25 записей'],['all','Все записи']]);
@@ -341,7 +331,7 @@ async function inventoryRegistry(q) {
   const pagerBar=el('div',{class:'opis-pager'},perField,el('span',{class:'pager-info'},perPage
     ? (total?`Строки ${first+1}–${first+shown.length} из ${total} · страница ${page} из ${pages}`:'Записей нет')
     : `Показаны все записи: ${total}`),numbers);
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),tabs,sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту'],['price','По цене']]),hiddenField('limit',limitRaw)]),el('div',{class:'registry-total-bar'},toggle,box),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽','Расх.',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),tabs,sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту']]),hiddenField('limit',limitRaw)]),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Расх.',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
 }
 // ─── Списание: отметки в описи, отчёт по форме, применение ───
 // Причины списания — подсказки в поле: их можно выбрать из списка или вписать своё.
@@ -386,7 +376,7 @@ function rashMark(item, marked, refresh=false) {
 }
 // Строка вкладки «Списание» — это отметка, а правится позиция описи: форма
 // правки у них общая, поэтому отметку переводим в запись описи.
-const writeoffItem = d => ({id:d.item_id,name:d.name,number:d.number,unit:d.unit,document_number:d.document_number,quantity:d.item_quantity,price:d.price});
+const writeoffItem = d => ({id:d.item_id,name:d.name,number:d.number,unit:d.unit,document_number:d.document_number,quantity:d.item_quantity});
 // Вкладка «Списание»: та же таблица, что в описи, но под каждой строкой —
 // количество к списанию, галочка «все» и причина. Поля видны всегда: ничего не
 // нужно разворачивать, и сразу заметно, что ещё не заполнено.
@@ -400,12 +390,10 @@ async function inventoryWriteoff(drafts, marked) {
   const periodTo=input('period_to','Период по',settings.to,{type:'date'});
   for(const [node,name] of [[department,'department'],[person,'person'],[periodFrom,'from'],[periodTo,'to']])
     node.querySelector('input').addEventListener('change',event=>keepWriteoffSetting({[name]:event.currentTarget.value}));
-  const money=d=>d.price===null||d.price===undefined?null:Math.round(Number(d.price)*Number(d.quantity||0)*100)/100;
   const totals=el('p',{class:'writeoff-total'});
   const refreshTotals=()=>{
     const units=list.reduce((sum,d)=>sum+Number(d.quantity||0),0);
-    const amount=list.reduce((sum,d)=>sum+(money(d)||0),0);
-    totals.textContent=list.length?`Отмечено позиций: ${list.length} · к списанию ${numText(units)} ед. · на сумму ${numText(Math.round(amount*100)/100)} ₽`:'Ничего не отмечено';
+    totals.textContent=list.length?`Отмечено позиций: ${list.length} · к списанию ${numText(units)} ед.`:'Ничего не отмечено';
   };
   refreshTotals();
   const rows=list.map(d=>{
@@ -428,7 +416,7 @@ async function inventoryWriteoff(drafts, marked) {
     reason.addEventListener('change',save);
     all.addEventListener('change',()=>{if(all.checked&&full!==null)quantity.value=String(full);save();});
     return {
-      cells:[el('span',{title:d.name||''},d.name||'—'),d.number||'—',d.unit||'—',numText(d.item_quantity),d.document_number||'—',numText(d.price),numText(d.price===null||d.price===undefined||d.item_quantity===null?null:Math.round(Number(d.price)*Number(d.item_quantity)*100)/100),rashMark({id:d.item_id,quantity:d.item_quantity},marked,true),actions(button('Изменить',()=>inventoryNumberForm(writeoffItem(d)),'navy'))],
+      cells:[el('span',{title:d.name||''},d.name||'—'),d.number||'—',d.unit||'—',numText(d.item_quantity),d.document_number||'—',rashMark({id:d.item_id,quantity:d.item_quantity},marked,true),actions(button('Изменить',()=>inventoryNumberForm(writeoffItem(d)),'navy'))],
       under:el('div',{class:'writeoff-under'},reasonList,el('span',{class:'writeoff-label'},'Количество'),quantity,el('label',{class:'check writeoff-all'},all,'все'),el('span',{class:'writeoff-label'},'Причина списания'),reason)
     };
   });
@@ -448,7 +436,7 @@ async function inventoryWriteoff(drafts, marked) {
   },'primary');
   const bar=el('div',{class:'writeoff-bar'},el('div',{class:'writeoff-req'},department,person,periodFrom,periodTo),el('div',{class:'writeoff-actions'},download,apply));
   return sheet(sh('Списание','Отмеченные позиции: количество и причина — под строкой, поля сохраняются сами.'),bar,
-    body(table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Цена, ₽','Сумма, ₽','Расх.',''],rows,'Ничего не отмечено: поставьте галочку «Расх.» в описи — позиция появится здесь.','opis-table opis-writeoff'),totals),
+    body(table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Расх.',''],rows,'Ничего не отмечено: поставьте галочку «Расх.» в описи — позиция появится здесь.','opis-table opis-writeoff'),totals),
     el('div',{class:'sheet-foot'},el('span',{},`${list.length} позиций отмечено`)));
 }
 // Документы раздела — архив материального отдела: таблицы, ведомости, сканы.
@@ -675,16 +663,8 @@ function todayISO(){
 }
 
 function inventoryNumberForm(x) {
-  // Сумма строки не вводится руками: она считается как цена × количество, и при
-  // правке количества пересчитывается (и в форме, и на сервере).
   const quantityField=input('quantity','Количество',x?.quantity ?? '',{type:'number',step:'any',min:0});
-  const priceField=input('price','Цена за единицу, ₽',x?.price ?? '',{type:'number',step:'any',min:0});
-  const amountField=input('amount','Сумма, ₽ (цена × количество)',x?.amount ?? '',{readonly:true,tabindex:'-1'});
-  const amountInput=amountField.querySelector('input');
-  const syncAmount=()=>{const p=numOrNull(priceField.querySelector('input').value),q=numOrNull(quantityField.querySelector('input').value);amountInput.value=(p!==null&&q!==null)?String(Math.round(p*q*100)/100):'';};
-  for(const node of [priceField.querySelector('input'),quantityField.querySelector('input')])node.addEventListener('input',syncAmount);
-  syncAmount();
-  const node=form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('document_number','№ документа',x?.document_number||'',{placeholder:'105, 07,2…'}),el('div',{class:'form-grid'},quantityField,priceField),amountField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,document_number:data.document_number,quantity:numOrNull(data.quantity),price:numOrNull(data.price)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();});
+  const node=form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('document_number','№ документа',x?.document_number||'',{placeholder:'105, 07,2…'}),quantityField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,document_number:data.document_number,quantity:numOrNull(data.quantity)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();});
   // Удаление живёт только здесь: в таблице кнопки нет, случайно не удалить.
   if(x)node.querySelector('.form-actions').prepend(button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE')),'navy'));
   modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',node);
@@ -887,7 +867,7 @@ async function inventoryDetail(id,page) {
   let responsible='Не назначен';if(x.responsible_id){try{responsible=(await api.getUser(x.responsible_id)).full_name;}catch{responsible='Недоступен';}}
   const activeLoan=loans.find(l=>!l.returned_at);
   const record=x.inventory_number ? await (admin()?api.lookupInventoryNumber(x.inventory_number):api.lookupInventoryHint(x.inventory_number)).catch(()=>null) : null;
-  const registryFields=record?[['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)],...(admin()?[['Цена, ₽',numText(record.price)],['Сумма, ₽',numText(record.amount)]]:[])]:null;
+  const registryFields=record?[['Наименование',record.name||'—'],['Инвентарный номер',record.number],['Единица измерения',record.unit||'—'],['Количество',numText(record.quantity)]]:null;
   const registryBlock=sheet(sh('Запись в инвентаризации',admin()?'Опись материального отдела. Видят только администраторы.':'Позиция из описи материального отдела.'),registryFields?body(details(registryFields),admin()?el('div',{class:'actions'},button('Изменить запись',()=>inventoryNumberForm(record),'quiet')):null):body(el('p',{},x.inventory_number?'В инвентаризации нет позиции с этим инвентарным номером.':'У объекта не указан инвентарный номер — сверять не с чем.')));
   const root=el('div',{},link('← К реестру',`#/${page}`,'back-link'),head(x.name,`${types[x.type]||x.type} · ${x.inventory_number||'Без инвентарного номера'}`,admin()?button('Редактировать',()=>inventoryForm(x,page),'primary'):null),el('div',{class:'detail-grid'},sheet(sh('Карточка объекта'),body(details([['Расположение',x.location],['Инвентарный номер',x.inventory_number||'—'],['Ответственный',responsible],['Состояние',status(x.status?'Доступно':x.unavailable_reason||'Недоступно',x.status?'good':'warn')],['Следующая поверка',verification(x.next_verification_date)],['Последняя поверка',date(x.last_verification_date)],['Документация',x.documentation?external(x.documentation,x.documentation):'—']]),inventoryNumberMarks(x)),body(el('h3',{},'Описание'),el('p',{class:'prose'},x.description||'Описание пока не добавлено.'))),sheet(sh('Временное пользование',activeLoan?'Объект сейчас выдан':'Нет активной выдачи'),body(activeLoan?details([['Получатель',activeLoan.borrower],['Дата выдачи',date(activeLoan.issued_at,true)],['Комментарий',activeLoan.comment]]):el('p',{},'Передайте оборудование сотруднику и сохраните запись о выдаче.'),admin()&&x.type==='equipment'?button(activeLoan?'Оформить возврат':'Выдать оборудование',async()=>{if(activeLoan){confirmAction('Оформить возврат',`Подтвердите возврат «${x.name}».`,async()=>{await request(`/loans/${activeLoan.id}/return`,'POST',{});route();});}else await loanForm(x);},'primary'):null)),registryBlock));
   root.append(await photoSection(photos,id,x));

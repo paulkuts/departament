@@ -27,9 +27,9 @@ func NewInventoryWriteoffRepo(db *sqlx.DB, log *zap.Logger) *InventoryWriteoffRe
 }
 
 // Колонки отметки и позиции: вкладка «Списание» показывает те же данные, что
-// опись, — наименование, номер, количество, цену и № документа.
+// опись, — наименование, номер, количество и № документа.
 const inventoryWriteoffColumns = `w.id, w.item_id, w.quantity, w.reason, w.status, w.created_by, w.created_at, w.applied_by, w.applied_at,
-	i.name, i.number, i.unit, i.document_number, i.quantity AS item_quantity, i.price`
+	i.name, i.number, i.unit, i.document_number, i.quantity AS item_quantity`
 
 // ListDrafts — отмеченные позиции вкладки «Списание» в порядке описи.
 func (r *InventoryWriteoffRepo) ListDrafts(ctx context.Context) ([]models.InventoryWriteoff, error) {
@@ -84,7 +84,6 @@ type writeoffDraft struct {
 	ItemID       int64    `db:"item_id"`
 	Quantity     float64  `db:"quantity"`
 	ItemQuantity *float64 `db:"item_quantity"`
-	Price        *float64 `db:"price"`
 }
 
 // ApplyDrafts применяет все отметки: количество в описи уменьшается, полностью
@@ -105,7 +104,7 @@ func (r *InventoryWriteoffRepo) ApplyDrafts(ctx context.Context, actorID *string
 
 	drafts := []writeoffDraft{}
 	if err := tx.SelectContext(ctx, &drafts,
-		`SELECT w.id, w.item_id, w.quantity, i.quantity AS item_quantity, i.price
+		`SELECT w.id, w.item_id, w.quantity, i.quantity AS item_quantity
 		 FROM inventory_writeoffs w
 		 JOIN inventory_numbers i ON i.id = w.item_id
 		 WHERE w.status = 'draft' ORDER BY w.id`); err != nil {
@@ -118,7 +117,6 @@ func (r *InventoryWriteoffRepo) ApplyDrafts(ctx context.Context, actorID *string
 	for _, d := range drafts {
 		effective := d.Quantity
 		var newQuantity *float64
-		var newAmount *float64
 		fully := true
 
 		if d.ItemQuantity != nil {
@@ -131,15 +129,11 @@ func (r *InventoryWriteoffRepo) ApplyDrafts(ctx context.Context, actorID *string
 			}
 			newQuantity = &remaining
 			fully = remaining <= 0
-			if d.Price != nil {
-				amount := math.Round(*d.Price*remaining*100) / 100
-				newAmount = &amount
-			}
 		}
 
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE inventory_numbers SET quantity = ?, amount = ?, written_off = written_off + ?, is_written_off = ? WHERE id = ?`,
-			newQuantity, newAmount, effective, boolToInt(fully), d.ItemID); err != nil {
+			`UPDATE inventory_numbers SET quantity = ?, written_off = written_off + ?, is_written_off = ? WHERE id = ?`,
+			newQuantity, effective, boolToInt(fully), d.ItemID); err != nil {
 			return result, fmt.Errorf("write off item %d: %w", d.ItemID, err)
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -150,9 +144,6 @@ func (r *InventoryWriteoffRepo) ApplyDrafts(ctx context.Context, actorID *string
 
 		result.Items++
 		result.Quantity += effective
-		if d.Price != nil {
-			result.Amount += math.Round(*d.Price*effective*100) / 100
-		}
 	}
 
 	if err := tx.Commit(); err != nil {

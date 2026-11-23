@@ -89,8 +89,7 @@ func (s *WriteoffService) ApplyDrafts(ctx context.Context, actorID *string) (mod
 	}
 	s.log.Info("списание применено",
 		zap.Int64("позиций", result.Items),
-		zap.Float64("единиц", result.Quantity),
-		zap.Float64("сумма", result.Amount))
+		zap.Float64("единиц", result.Quantity))
 	return result, nil
 }
 

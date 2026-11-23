@@ -5,7 +5,6 @@ import (
 	"strings"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"mitm-departament/internal/models"
 
@@ -519,26 +518,13 @@ func (s *EquipmentService) SearchNumbers(ctx context.Context, query, sort string
 	return s.numbers.Search(ctx, query, sort, limit)
 }
 
-// SummaryNumbers — итог по описи для блока сверху страницы: сколько строк,
-// сколько единиц и на какую сумму. Считается по тому же поиску, что и список.
+// SummaryNumbers — итог по описи для блока сверху страницы: сколько строк и
+// сколько единиц. Считается по тому же поиску, что и список.
 func (s *EquipmentService) SummaryNumbers(ctx context.Context, query string) (models.InventorySummary, error) {
 	if s.numbers == nil {
 		return models.InventorySummary{}, errors.New("инвентаризация недоступна")
 	}
 	return s.numbers.Summary(ctx, query)
-}
-
-// ComputeAmount — сумма строки считается, а не вводится руками: цена ×
-// количество. Нет цены или количества — суммы нет (считать нечего), поэтому
-// после правки количества сумма меняется сама. Округляем до копеек: иначе
-// двоичная дробь даёт хвост, а сумма сотен строк накапливает погрешность.
-func ComputeAmount(item *models.InventoryNumber) {
-	if item.Price != nil && item.Quantity != nil {
-		amount := math.Round(*item.Price**item.Quantity*100) / 100
-		item.Amount = &amount
-		return
-	}
-	item.Amount = nil
 }
 
 // NotInRegistryMark — нужно ли пометить номер как отсутствующий в таблице.
@@ -566,9 +552,6 @@ func (s *EquipmentService) ImportNumbers(ctx context.Context, items []models.Inv
 	if s.numbers == nil {
 		return 0, 0, 0, errors.New("справочник инвентарных номеров недоступен")
 	}
-	for i := range items {
-		ComputeAmount(&items[i])
-	}
 	added, updated, err = s.numbers.Import(ctx, items, replace)
 	if err != nil {
 		return 0, 0, 0, err
@@ -595,7 +578,6 @@ func (s *EquipmentService) CreateNumber(ctx context.Context, item *models.Invent
 	if s.numbers == nil {
 		return errors.New("инвентаризация недоступна")
 	}
-	ComputeAmount(item)
 	if err := s.numbers.Create(ctx, item); err != nil {
 		return err
 	}
@@ -609,7 +591,6 @@ func (s *EquipmentService) UpdateNumber(ctx context.Context, item *models.Invent
 	if s.numbers == nil {
 		return errors.New("инвентаризация недоступна")
 	}
-	ComputeAmount(item)
 	if err := s.numbers.Update(ctx, item); err != nil {
 		return err
 	}
