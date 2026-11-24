@@ -22,7 +22,7 @@ func NewInventoryNumberRepo(db *sqlx.DB, log *zap.Logger) *InventoryNumberRepo {
 	return &InventoryNumberRepo{db: db, log: log}
 }
 
-const inventoryNumberColumns = `id, number, normalized, name, name_normalized, source, document_number, unit, quantity, created_at`
+const inventoryNumberColumns = `id, number, normalized, name, name_normalized, source, document_number, unit, quantity, accepted_at, wear_percent, created_at`
 
 // Search отдаёт строки описи: страница инвентаризации и подсказки в форме
 // объекта. Пустой запрос — весь список (страница грузит опись целиком).
@@ -147,10 +147,11 @@ func (r *InventoryNumberRepo) Create(ctx context.Context, item *models.Inventory
 	}
 	item.NameNormalized = NormalizeName(item.Name)
 	res, err := r.db.ExecContext(ctx,
-		`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, document_number, unit, quantity)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, document_number, unit, quantity, accepted_at, wear_percent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		strings.TrimSpace(item.Number), normalized, strings.TrimSpace(item.Name), item.NameNormalized, source,
-		strings.TrimSpace(item.DocumentNumber), strings.TrimSpace(item.Unit), item.Quantity)
+		strings.TrimSpace(item.DocumentNumber), strings.TrimSpace(item.Unit), item.Quantity,
+		strings.TrimSpace(item.AcceptedAt), item.WearPercent)
 	if err != nil {
 		return fmt.Errorf("create inventory number %q: %w", item.Number, err)
 	}
@@ -166,10 +167,11 @@ func (r *InventoryNumberRepo) Update(ctx context.Context, item *models.Inventory
 	normalized := models.CanonicalInventoryNumber(item.Number)
 	item.NameNormalized = NormalizeName(item.Name)
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE inventory_numbers SET number = ?, normalized = ?, name = ?, name_normalized = ?, document_number = ?, unit = ?, quantity = ?
+		`UPDATE inventory_numbers SET number = ?, normalized = ?, name = ?, name_normalized = ?, document_number = ?, unit = ?, quantity = ?, accepted_at = ?, wear_percent = ?
 		 WHERE id = ?`,
 		strings.TrimSpace(item.Number), normalized, strings.TrimSpace(item.Name), item.NameNormalized,
-		strings.TrimSpace(item.DocumentNumber), strings.TrimSpace(item.Unit), item.Quantity, item.ID)
+		strings.TrimSpace(item.DocumentNumber), strings.TrimSpace(item.Unit), item.Quantity,
+		strings.TrimSpace(item.AcceptedAt), item.WearPercent, item.ID)
 	if err != nil {
 		return fmt.Errorf("update inventory number %d: %w", item.ID, err)
 	}
@@ -220,10 +222,11 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 		switch {
 		case errors.Is(lookupErr, sql.ErrNoRows):
 			if _, err = tx.ExecContext(ctx,
-				`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, document_number, unit, quantity)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				`INSERT INTO inventory_numbers (number, normalized, name, name_normalized, source, document_number, unit, quantity, accepted_at, wear_percent)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				number, normalized, name, nameNormalized, source,
-				strings.TrimSpace(it.DocumentNumber), strings.TrimSpace(it.Unit), it.Quantity); err != nil {
+				strings.TrimSpace(it.DocumentNumber), strings.TrimSpace(it.Unit), it.Quantity,
+				strings.TrimSpace(it.AcceptedAt), it.WearPercent); err != nil {
 				return 0, 0, fmt.Errorf("insert inventory number %q: %w", it.Number, err)
 			}
 			added++
@@ -231,10 +234,11 @@ func (r *InventoryNumberRepo) Import(ctx context.Context, items []models.Invento
 			return 0, 0, fmt.Errorf("lookup inventory number %q: %w", it.Number, lookupErr)
 		default:
 			if _, err = tx.ExecContext(ctx,
-				`UPDATE inventory_numbers SET number = ?, name = ?, name_normalized = ?, document_number = ?, unit = ?, quantity = ?
+				`UPDATE inventory_numbers SET number = ?, name = ?, name_normalized = ?, document_number = ?, unit = ?, quantity = ?,
+				 accepted_at = COALESCE(NULLIF(?, ''), accepted_at), wear_percent = COALESCE(?, wear_percent)
 				 WHERE id = ?`,
 				number, name, nameNormalized, strings.TrimSpace(it.DocumentNumber),
-				strings.TrimSpace(it.Unit), it.Quantity, id); err != nil {
+				strings.TrimSpace(it.Unit), it.Quantity, strings.TrimSpace(it.AcceptedAt), it.WearPercent, id); err != nil {
 				return 0, 0, fmt.Errorf("update inventory number %q: %w", it.Number, err)
 			}
 			updated++

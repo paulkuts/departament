@@ -366,12 +366,14 @@ type InventoryNumberResponse struct {
 	DocumentNumber string   `json:"document_number"`
 	Unit           string   `json:"unit"`
 	Quantity *float64 `json:"quantity"`
+	AcceptedAt     string   `json:"accepted_at"`
+	WearPercent    *float64 `json:"wear_percent"`
 }
 
 func ToInventoryNumberResponse(it *models.InventoryNumber) InventoryNumberResponse {
 	return InventoryNumberResponse{
 		ID: it.ID, Number: it.Number, Name: it.Name, DocumentNumber: it.DocumentNumber,
-		Unit: it.Unit, Quantity: it.Quantity,
+		Unit: it.Unit, Quantity: it.Quantity, AcceptedAt: it.AcceptedAt, WearPercent: it.WearPercent,
 	}
 }
 
@@ -425,18 +427,22 @@ func ToInventorySummaryResponse(s models.InventorySummary) InventorySummaryRespo
 type InventoryNumberRequest struct {
 	Number         string   `json:"number" binding:"required,min=1,max=100"`
 	Name           string   `json:"name" binding:"required,min=1,max=500"`
-	DocumentNumber string   `json:"document_number" binding:"max=50"`
+	DocumentNumber string   `json:"document_number" binding:"max=200"`
 	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
+	AcceptedAt     string   `json:"accepted_at" binding:"max=10"`
+	WearPercent    *float64 `json:"wear_percent" binding:"omitempty,gte=0,lte=100"`
 }
 
 // InventoryNumberItem — одна строка загружаемой таблицы описи.
 type InventoryNumberItem struct {
 	Number         string   `json:"number" binding:"required,min=1"`
 	Name           string   `json:"name"`
-	DocumentNumber string   `json:"document_number" binding:"max=50"`
+	DocumentNumber string   `json:"document_number" binding:"max=200"`
 	Unit           string   `json:"unit" binding:"max=50"`
 	Quantity *float64 `json:"quantity" binding:"omitempty,gte=0"`
+	AcceptedAt     string   `json:"accepted_at" binding:"max=10"`
+	WearPercent    *float64 `json:"wear_percent" binding:"omitempty,gte=0,lte=100"`
 }
 
 // ImportInventoryNumbersRequest — загрузка таблицы номеров.
@@ -451,6 +457,62 @@ type ImportInventoryNumbersResponse struct {
 	Added   int `json:"added"`
 	Updated int `json:"updated"`
 	Total   int `json:"total"`
+}
+
+// InventoryImportTableItem — одна строка вставки из Excel: браузер уже разобрал
+// ячейки, сервер проверяет значения и пишет пакет.
+type InventoryImportTableItem struct {
+	Number      string   `json:"number"`
+	Name        string   `json:"name"`
+	Unit        string   `json:"unit"`
+	Quantity    *float64 `json:"quantity"`
+	AcceptedAt  string   `json:"accepted_at"`
+	WearPercent *float64 `json:"wear_percent"`
+}
+
+// InventoryImportTableRequest — загрузка таблицы описи одним пакетом.
+// № документа один на весь пакет: в нём код вида «101.24».
+type InventoryImportTableRequest struct {
+	Label          string                    `json:"label" binding:"max=200"`
+	DocumentNumber string                    `json:"document_number" binding:"max=200"`
+	Items          []InventoryImportTableItem `json:"items" binding:"required,min=1,max=5000,dive"`
+}
+
+// InventoryImportProblemResponse — строка, не принятая пакетом, с причиной.
+type InventoryImportProblemResponse struct {
+	Row    int    `json:"row"`
+	Reason string `json:"reason"`
+	Number string `json:"number,omitempty"`
+	Name   string `json:"name,omitempty"`
+}
+
+// InventoryImportTableResponse — отчёт пакета до и после записи.
+type InventoryImportTableResponse struct {
+	BatchID    int64                           `json:"batch_id"`
+	Added      int                             `json:"added"`
+	Updated    int                             `json:"updated"`
+	Skipped    int                             `json:"skipped"`
+	Duplicates int                             `json:"duplicates"`
+	Problems   []InventoryImportProblemResponse `json:"problems"`
+}
+
+func ToInventoryImportTableResponse(r *models.InventoryImportReport) InventoryImportTableResponse {
+	out := InventoryImportTableResponse{
+		BatchID: r.BatchID, Added: r.Added, Updated: r.Updated,
+		Skipped: r.Skipped, Duplicates: r.Duplicates,
+		Problems: make([]InventoryImportProblemResponse, 0, len(r.Problems)),
+	}
+	for _, p := range r.Problems {
+		out.Problems = append(out.Problems, InventoryImportProblemResponse{Row: p.Row, Reason: p.Reason, Number: p.Number, Name: p.Name})
+	}
+	return out
+}
+
+// InventoryImportRollbackResponse — итог отката пакета.
+type InventoryImportRollbackResponse struct {
+	Removed  int `json:"removed"`
+	Restored int `json:"restored"`
+	Kept     int `json:"kept"`
 }
 
 // WriteoffResponse — отмеченная на списание позиция (вкладка «Списание»).

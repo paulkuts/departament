@@ -1,5 +1,5 @@
-import {api} from './api.js?v=58';
-import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=58';
+import {api} from './api.js?v=59';
+import {el,button,link,external,field,form,modal,closeModal,confirmAction,toast,date,dateLocal,status,table,buildRows,actions,sheet,details} from './dom.js?v=59';
 
 const content = document.getElementById('content');
 let me = null, revision = 0, blobURLs = [];
@@ -314,7 +314,7 @@ async function inventoryRegistry(q) {
   const page=perPage?Math.min(pages,Math.max(1,Math.floor((Number(q.get('offset'))||0)/perPage)+1)):1;
   const first=perPage?(page-1)*perPage:0;
   const shown=perPage?items.slice(first,first+perPage):items;
-  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',rashMark(x,marked),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
+  const rows=shown.map(x=>[el('span',{title:x.name||''},x.name||'—'),x.number||'—',x.unit||'—',numText(x.quantity),x.document_number||'—',importDateText(x.accepted_at),importWearText(x.wear_percent),rashMark(x,marked),actions(button('Изменить',()=>inventoryNumberForm(x),'navy'))]);
   // Постраничный вывод: 10 записей по умолчанию, 25 или весь список целиком.
   const goTo=offset=>{const next=new URLSearchParams(q);next.set('limit',limitRaw);offset>0?next.set('offset',String(offset)):next.delete('offset');navTo(`inventory?${next}`);};
   const perField=select('limit','На странице',limitRaw,[['10','10 записей'],['25','25 записей'],['all','Все записи']]);
@@ -331,7 +331,7 @@ async function inventoryRegistry(q) {
   const pagerBar=el('div',{class:'opis-pager'},perField,el('span',{class:'pager-info'},perPage
     ? (total?`Строки ${first+1}–${first+shown.length} из ${total} · страница ${page} из ${pages}`:'Записей нет')
     : `Показаны все записи: ${total}`),numbers);
-  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary')),tabs,sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту']]),hiddenField('limit',limitRaw)]),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Расх.',''],rows,'Записей пока нет: добавьте первую или загрузите таблицу материального отдела. Загрузка таблицы появится отдельно.','opis-table'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
+  return el('div',{},head('Инвентаризация','Опись материального отдела. Данные конфиденциальные — раздел доступен администраторам.',button('Добавить объект',()=>inventoryNumberForm(null),'primary'),button('Добавить таблицей',()=>inventoryImportForm(),'navy')),tabs,sheet(filterBar('inventory',q,[input('search','Поиск',search,{placeholder:'Наименование или инвентарный номер…'}),select('sort','Сортировка',sort,[['','Как в документах'],['duplicates','По дублям'],['name','По алфавиту']]),hiddenField('limit',limitRaw)]),pagerBar,table(['Наименование','Инв. №','Ед. изм.','Кол-во','№ документа','Дата принятия','Износ, %','Расх.',''],rows,'Записей пока нет: добавьте первую или вставьте таблицу кнопкой «Добавить таблицей».','opis-table opis-import'),el('div',{class:'sheet-foot'},el('span',{},`${total} записей в описи`)),await inventoryDocuments()));
 }
 // ─── Списание: отметки в описи, отчёт по форме, применение ───
 // Причины списания — подсказки в поле: их можно выбрать из списка или вписать своё.
@@ -664,10 +664,211 @@ function todayISO(){
 
 function inventoryNumberForm(x) {
   const quantityField=input('quantity','Количество',x?.quantity ?? '',{type:'number',step:'any',min:0});
-  const node=form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('document_number','№ документа',x?.document_number||'',{placeholder:'105, 07,2…'}),quantityField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,document_number:data.document_number,quantity:numOrNull(data.quantity)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();});
+  const node=form([input('name','Наименование',x?.name,{required:true}),input('number','Инвентарный номер',x?.number,{required:true}),input('unit','Единица измерения',x?.unit||'',{placeholder:'шт, кг, м…'}),input('document_number','№ документа',x?.document_number||'',{placeholder:'105, 07,2…'}),el('div',{class:'form-grid'},input('accepted_at','Дата принятия к учёту',(x?.accepted_at||'').slice(0,10),{type:'date'}),input('wear_percent','Износ, %',x?.wear_percent ?? '',{type:'number',step:'any',min:0,max:100})),quantityField],'Сохранить',async data=>{const payload={name:data.name,number:data.number,unit:data.unit,document_number:data.document_number,accepted_at:data.accepted_at||'',wear_percent:numOrNull(data.wear_percent),quantity:numOrNull(data.quantity)};await request(x?`/inventory-numbers/${x.id}`:'/inventory-numbers',x?'PUT':'POST',payload);closeModal();toast(x?'Запись инвентаризации изменена':'Запись инвентаризации добавлена');route();});
   // Удаление живёт только здесь: в таблице кнопки нет, случайно не удалить.
   if(x)node.querySelector('.form-actions').prepend(button('Удалить',()=>remove('Удалить запись',x.name||x.number,()=>request(`/inventory-numbers/${x.id}`,'DELETE')),'navy'));
   modal(x?'Изменить запись инвентаризации':'Новая запись инвентаризации',node);
+}
+
+// ─── «Добавить таблицей»: массовая вставка строк описи из Excel ──────────────
+// Павел копирует диапазон из Excel/Google Sheets и вставляет в поле: форма сама
+// разбирает табы и переводы строк, находит заголовок и сопоставляет колонки.
+// № документа (код вида «101.24») один на весь пакет и вводится сверху.
+const importTargets=[['','— не использовать —'],['name','Наименование'],['number','Инв. №'],['unit','Ед. изм.'],['quantity','Кол-во'],['accepted_at','Дата принятия к учёту'],['wear_percent','Износ, %']];
+const importHeaderWords=/наимен|инв|ед\.?\s*изм|единиц|кол-?во|количест|дата|принят|износ|документ/i;
+const importMapKey='inventoryImportMap';
+const importDocKey='inventoryImportDoc';
+
+function importTargetLabel(target){return (importTargets.find(([value])=>value===target)||['',''])[1];}
+function importDateText(value){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec((value||'').slice(0,10));
+  return m?`${m[3]}.${m[2]}.${m[1]}`:'—';
+}
+function importWearText(value){
+  return value===null||value===undefined||value===''?'—':`${Number(value)}%`;
+}
+// Строки вставки: Excel всегда отдаёт табы, Google Sheets — тоже; точка с
+// запятой нужна для таблиц, собранных вручную. Запятую разделителем не берём:
+// в наименованиях она встречается постоянно.
+function splitImportPaste(text){
+  const lines=String(text||'').replace(/\r\n?/g,'\n').split('\n').filter(line=>line.trim()!=='');
+  if(!lines.length)return [];
+  const delimiter=lines.some(line=>line.includes('\t'))?'\t':(lines.some(line=>line.includes(';'))?';':'');
+  return lines.map(line=>delimiter?line.split(delimiter).map(cell=>cell.trim()):[line.trim()]);
+}
+function looksLikeImportHeader(cells){
+  return (cells||[]).some(cell=>importHeaderWords.test(cell));
+}
+// Автосопоставление: по заголовку, а если заголовка нет — по содержимому
+// (10-значные номера, даты). Количество и износ без заголовка не угадываем:
+// ошибиться дороже, чем один раз выбрать колонку руками.
+function guessImportTargets(header,cells){
+  const width=Math.max(0,...cells.map(row=>row.length));
+  const map=[];
+  for(let i=0;i<width;i++){
+    const h=(header?.[i]||'').toLowerCase();
+    let target='';
+    if(/наимен/.test(h))target='name';
+    else if(/инв/.test(h))target='number';
+    else if(/ед\.?\s*изм|единиц|изм\./.test(h))target='unit';
+    else if(/кол/.test(h))target='quantity';
+    else if(/дата|принят/.test(h))target='accepted_at';
+    else if(/износ/.test(h))target='wear_percent';
+    else if(!header){
+      const values=cells.map(row=>row[i]).filter(Boolean).slice(0,20);
+      if(values.length&&values.every(v=>/^\d{6,}$/.test(v.replace(/\s/g,''))))target='number';
+      else if(values.length&&values.every(v=>/^\d{1,2}[./]\d{1,2}[./](\d{2}|\d{4})$/.test(v)))target='accepted_at';
+    }
+    map.push(target);
+  }
+  return map;
+}
+function parseImportNumber(raw){
+  const value=String(raw??'').trim().replace(/\s/g,'').replace(/%/g,'').replace(',','.');
+  if(value==='')return null;
+  return /^-?\d+(\.\d+)?$/.test(value)?Number(value):NaN;
+}
+function parseImportDate(raw){
+  const value=String(raw??'').trim();
+  if(!value)return '';
+  let m=/^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if(m)return `${m[1]}-${m[2]}-${m[3]}`;
+  m=/^(\d{1,2})[./](\d{1,2})[./](\d{2}|\d{4})/.exec(value);
+  if(m){let year=Number(m[3]);if(year<100)year+=year>=50?1900:2000;return `${year}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;}
+  if(/^\d{1,5}$/.test(value)){const date=new Date(Date.UTC(1899,11,30));date.setUTCDate(date.getUTCDate()+Number(value));return date.toISOString().slice(0,10);}
+  return null;
+}
+// Проверка строк до записи: те же правила, что на сервере. Дубли внутри
+// вставки (номер + наименование) пропускаются — остаётся первая строка.
+function buildImportRows(cells,map,header,documentNumber){
+  const start=header?1:0;
+  const items=[],problems=[];
+  let skipped=0,duplicates=0;
+  const seen=new Map();
+  for(let i=start;i<cells.length;i++){
+    const rowNo=i-start+1;
+    const item={number:'',name:'',unit:'',quantity:null,accepted_at:'',wear_percent:null};
+    map.forEach((target,index)=>{if(target)item[target]=cells[i][index]??'';});
+    item.number=String(item.number||'').trim();
+    item.name=String(item.name||'').trim();
+    item.unit=String(item.unit||'').trim();
+    const problem=reason=>{skipped++;problems.push({row:rowNo,reason,number:item.number,name:item.name});};
+    if(!item.number){problem('пустой инвентарный номер');continue;}
+    if(item.number.length>100){problem('номер длиннее 100 символов');continue;}
+    if(!item.name){problem('пустое наименование');continue;}
+    if(item.name.length>500){problem('наименование длиннее 500 символов');continue;}
+    if(item.unit.length>50){problem('единица измерения длиннее 50 символов');continue;}
+    const quantity=parseImportNumber(item.quantity);
+    if(Number.isNaN(quantity)||(quantity!==null&&quantity<0)){problem('количество не число');continue;}
+    const acceptedAt=parseImportDate(item.accepted_at);
+    if(acceptedAt===null){problem('дата принятия к учёту не распознана');continue;}
+    const wear=parseImportNumber(item.wear_percent);
+    if(Number.isNaN(wear)||(wear!==null&&(wear<0||wear>100))){problem('износ вне 0–100');continue;}
+    const key=canonicalNumber(item.number)+'|'+item.name.toUpperCase().replace(/\s+/g,' ');
+    if(seen.has(key)){duplicates++;problems.push({row:rowNo,reason:`дубль строки ${seen.get(key)}: номер и наименование совпадают`,number:item.number,name:item.name});continue;}
+    seen.set(key,rowNo);
+    items.push({number:item.number,name:item.name,unit:item.unit,quantity,accepted_at:acceptedAt,wear_percent:wear,document_number:documentNumber});
+  }
+  return {items,problems,skipped,duplicates};
+}
+
+function inventoryImportForm(){
+  const now=new Date();
+  const defaultLabel=`вставка ${now.toLocaleDateString('ru-RU')} ${now.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})}`;
+  const docField=input('document_number','№ документа (код)',localStorage.getItem(importDocKey)||'',{placeholder:'101.24 или 105',required:true});
+  const docInput=docField.querySelector('input');
+  const labelField=input('label','Метка пакета',defaultLabel,{required:true});
+  const pasteField=input('paste','Вставьте строки из Excel или Google Sheets','',{type:'textarea',required:true,placeholder:'Скопируйте диапазон вместе с заголовком — заголовок и колонки определю сам',class:'import-paste'});
+  const pasteArea=pasteField.querySelector('textarea');
+  const mapBox=el('div',{class:'import-map'});
+  const previewBox=el('div',{class:'import-preview'});
+  const reportBox=el('div',{class:'import-report'});
+  const mapHint=el('p',{class:'form-hint'},'№ документа один на весь пакет. Колонки: Наименование, Инв. №, Ед. изм., Кол-во, Дата принятия к учёту, Износ, %.');
+  const rulesHint=el('p',{class:'form-hint'},'До записи проверяются пустые номер и наименование, число в количестве, дата, износ 0–100, длина полей. Дубли по номеру и наименованию внутри вставки пропускаются.');
+
+  let state={cells:[],header:false,map:[]};
+  let built={items:[],problems:[],skipped:0,duplicates:0};
+  let timer=null;
+
+  const readMapStore=()=>{try{return JSON.parse(localStorage.getItem(importMapKey)||'{}')||{};}catch{return {};}};
+  const writeMapStore=store=>{try{localStorage.setItem(importMapKey,JSON.stringify(store));}catch{/* приватный режим */}};
+  const signatureOf=()=>state.header?state.cells[0].map(cell=>cell.toLowerCase()).join('|'):`cols:${state.map.length}`;
+  const saveMap=()=>{const store=readMapStore();store[signatureOf()]=state.map;writeMapStore(store);};
+
+  const selectEl=(choices,value)=>{const node=el('select',{},choices.map(([v,text])=>el('option',{value:v},text)));node.value=value;return node;};
+
+  const apply=()=>{
+    built=buildImportRows(state.cells,state.map,state.header,docInput.value.trim());
+    previewBox.replaceChildren();
+    reportBox.replaceChildren();
+    if(!state.cells.length){
+      reportBox.append(el('p',{class:'form-hint'},'Вставьте строки — здесь появятся счётчики принятых, пропущенных и дублей.'));
+      return;
+    }
+    const mapped=state.map.filter(Boolean).length;
+    if(!mapped){
+      reportBox.append(el('p',{class:'form-error'},'Сопоставьте хотя бы одну колонку.'));
+      return;
+    }
+    const start=state.header?1:0;
+    const targets=state.map.map((target,index)=>target?index:-1).filter(index=>index>=0);
+    const previewRows=state.cells.slice(start,start+5).map(row=>targets.map(index=>row[index]??''));
+    if(previewRows.length){
+      previewBox.append(
+        el('p',{class:'form-hint'},`Предпросмотр первых ${previewRows.length} строк`),
+        table(targets.map(index=>importTargetLabel(state.map[index])),previewRows,'','import-preview-table')
+      );
+    }
+    const total=built.items.length+built.skipped+built.duplicates;
+    const summary=`Строк: ${total} · принято ${built.items.length} · пропущено ${built.skipped} · дублей ${built.duplicates}`;
+    const nodes=[el('p',{class:'import-summary'},summary)];
+    if(built.problems.length){
+      nodes.push(el('div',{class:'import-problems'},built.problems.slice(0,10).map(problem=>el('div',{},`Строка ${problem.row}: ${problem.reason}${problem.number?` (${problem.number})`:''}`))));
+      if(built.problems.length>10)nodes.push(el('p',{class:'form-hint'},`…и ещё ${built.problems.length-10} строк с замечаниями`));
+    }
+    if(!built.items.length)nodes.push(el('p',{class:'form-error'},'Ни одна строка не прошла проверку — исправьте колонки или данные.'));
+    reportBox.append(...nodes);
+  };
+
+  const renderMap=()=>{
+    mapBox.replaceChildren(...state.map.map((target,index)=>{
+      const title=state.header?(state.cells[0][index]||`Колонка ${index+1}`):`Колонка ${index+1}`;
+      const selectNode=selectEl(importTargets,target);
+      selectNode.addEventListener('change',()=>{state.map[index]=selectNode.value;saveMap();apply();});
+      return el('label',{class:'import-col'},el('span',{},title),selectNode);
+    }));
+  };
+
+  const parseNow=()=>{
+    const cells=splitImportPaste(pasteArea.value);
+    const header=cells.length?looksLikeImportHeader(cells[0]):false;
+    const width=cells.length?Math.max(...cells.map(row=>row.length)):0;
+    const signature=header?cells[0].map(cell=>cell.toLowerCase()).join('|'):`cols:${width}`;
+    const saved=readMapStore()[signature];
+    state={cells,header:Boolean(header),map:Array.from({length:width},(_,index)=>saved?.[index]??'')};
+    if(!saved||state.map.every(value=>!value))state.map=guessImportTargets(header?cells[0]:null,cells);
+    renderMap();
+    apply();
+  };
+  const schedule=()=>{clearTimeout(timer);timer=setTimeout(parseNow,250);};
+  pasteArea.addEventListener('input',schedule);
+  pasteArea.addEventListener('paste',()=>setTimeout(parseNow,0));
+  docInput.addEventListener('input',()=>{if(state.cells.length)apply();});
+
+  const node=form([docField,labelField,pasteField,mapHint,mapBox,previewBox,reportBox,rulesHint],'Загрузить в опись',async data=>{
+    if(!built.items.length&&pasteArea.value.trim())parseNow();
+    const documentNumber=(data.document_number||'').trim();
+    if(!documentNumber)throw new Error('Укажите № документа');
+    if(!built.items.length)throw new Error('Нет строк для загрузки: проверьте сопоставление колонок');
+    localStorage.setItem(importDocKey,documentNumber);
+    const result=await api.importInventoryTable(labelField.querySelector('input').value.trim(),documentNumber,built.items);
+    closeModal();
+    toast(`Пакет №${result.batch_id}: добавлено ${result.added}, обновлено ${result.updated}${result.skipped?`, пропущено ${result.skipped}`:''}${result.duplicates?`, дублей ${result.duplicates}`:''}`);
+    route();
+  });
+  const dialog=modal('Добавить таблицей',node);
+  dialog.classList.add('dialog-wide');
+  dialog.addEventListener('close',()=>dialog.classList.remove('dialog-wide'),{once:true});
 }
 async function inventoryForm(item,page='equipment') {
   const x=item||{status:true,type:page==='equipment'?'equipment':'inventory'};

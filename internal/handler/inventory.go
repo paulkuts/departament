@@ -5,6 +5,7 @@ import (
 	"errors"
 	"mitm-departament/internal/models"
 	"mitm-departament/internal/report"
+	"mitm-departament/internal/service"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,6 +34,8 @@ type InventoryService interface {
 	CreateNumber(ctx context.Context, item *models.InventoryNumber) error
 	UpdateNumber(ctx context.Context, item *models.InventoryNumber) error
 	ImportNumbers(ctx context.Context, items []models.InventoryNumber, replace bool) (int, int, int, error)
+	ImportNumbersTable(ctx context.Context, label, documentNumber, createdBy string, rows []models.InventoryNumber) (*models.InventoryImportReport, error)
+	RollbackNumbersBatch(ctx context.Context, id int64) (*models.InventoryImportRollback, error)
 	DeleteNumber(ctx context.Context, id int64) error
 }
 
@@ -67,6 +70,8 @@ func (h *InventoryHandler) RegisterRoutes(rg *gin.RouterGroup) {
 	rg.POST("/inventory-numbers", requireRoles(adminKey), h.createNumber)
 	rg.PUT("/inventory-numbers/:id", requireRoles(adminKey), h.updateNumber)
 	rg.POST("/inventory-numbers/import", requireRoles(adminKey), h.importNumbers)
+	rg.POST("/inventory-numbers/import-batches", requireRoles(adminKey), h.importTable)
+	rg.POST("/inventory-numbers/import-batches/:id/rollback", requireRoles(adminKey), h.rollbackImportBatch)
 	rg.DELETE("/inventory-numbers/:id", requireRoles(adminKey), h.deleteNumber)
 }
 
@@ -403,12 +408,19 @@ func (h *InventoryHandler) bindNumber(c *gin.Context) (*models.InventoryNumber, 
 		handleValidationError(c, err)
 		return nil, false
 	}
+	acceptedAt, err := service.NormalizeAcceptedAt(req.AcceptedAt)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{Error: "дата принятия к учёту не распознана"})
+		return nil, false
+	}
 	item := &models.InventoryNumber{
 		Number:         strings.TrimSpace(req.Number),
 		Name:           strings.TrimSpace(req.Name),
 		DocumentNumber: strings.TrimSpace(req.DocumentNumber),
 		Unit:           strings.TrimSpace(req.Unit),
 		Quantity:       req.Quantity,
+		AcceptedAt:     acceptedAt,
+		WearPercent:    req.WearPercent,
 	}
 	canonical := models.CanonicalInventoryNumber(item.Number)
 	if canonical == "" || strings.Trim(canonical, "/") == "" {
@@ -483,6 +495,54 @@ func (h *InventoryHandler) importNumbers(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, ImportInventoryNumbersResponse{Added: added, Updated: updated, Total: total})
+}
+
+// importTable — пакетная вставка таблицы описи («Добавить таблицей»):
+// строки проверяются, дубли внутри вставки отсекаются, существующие
+// обновляются. Ответ — отчёт до записи и итог пакета.
+func (h *InventoryHandler) importTable(c *gin.Context) {
+	var req InventoryImportTableRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		handleValidationError(c, err)
+		return
+	}
+	rows := make([]models.InventoryNumber, 0, len(req.Items))
+	for _, it := range req.Items {
+		rows = append(rows, models.InventoryNumber{
+			Number:      it.Number,
+			Name:        it.Name,
+			Unit:        it.Unit,
+			Quantity:    it.Quantity,
+			AcceptedAt:  it.AcceptedAt,
+			WearPercent: it.WearPercent,
+		})
+	}
+	userID, _ := getUserID(c)
+	report, err := h.svc.ImportNumbersTable(c.Request.Context(), req.Label, req.DocumentNumber, userID.String(), rows)
+	if err != nil {
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, ToInventoryImportTableResponse(report))
+}
+
+// rollbackImportBatch — откат пакета вставки одной командой: добавленные
+// строки удаляются, обновлённым возвращаются прежние значения.
+func (h *InventoryHandler) rollbackImportBatch(c *gin.Context) {
+	id, ok := parseIDParam(c, "id")
+	if !ok {
+		return
+	}
+	result, err := h.svc.RollbackNumbersBatch(c.Request.Context(), id)
+	if err != nil {
+		if errors.Is(err, service.ErrImportBatchNotFound) {
+			c.JSON(http.StatusNotFound, ErrorResponse{Error: "пакет импорта не найден"})
+			return
+		}
+		handleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, InventoryImportRollbackResponse{Removed: result.Removed, Restored: result.Restored, Kept: result.Kept})
 }
 
 // deleteNumber удаляет номер из справочника (только админ).

@@ -213,3 +213,24 @@ tbody tr:hover{background:#d7e6f4}
 .to-top.show{display:grid}
 .to-top:hover{transform:translateY(-2px)}
 @media (max-width:640px){.to-top{right:16px;bottom:16px;width:48px;height:54px}}
+
+/* Вставка таблицей в опись: широкое окно, сопоставление колонок, предпросмотр */
+dialog.dialog-wide{width:min(920px,calc(100% - 32px))}
+.import-form textarea.import-paste{min-height:150px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre;overflow:auto}
+.import-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px;margin:8px 0 12px}
+.import-col{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.import-col select{min-height:34px;font-size:13px}
+.import-preview-table{font-size:12px}
+.import-preview-table th,.import-preview-table td{padding:6px 8px;white-space:nowrap}
+.import-summary{font-weight:600;margin:8px 0 4px}
+.import-problems{max-height:150px;overflow:auto;font-size:12px;color:#8a3b3b;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.opis-import table{table-layout:fixed;width:100%}
+.opis-import th:nth-child(1),.opis-import td:nth-child(1){width:32%}
+.opis-import th:nth-child(2),.opis-import td:nth-child(2){width:12%}
+.opis-import th:nth-child(3),.opis-import td:nth-child(3){width:6%}
+.opis-import th:nth-child(4),.opis-import td:nth-child(4){width:6%}
+.opis-import th:nth-child(5),.opis-import td:nth-child(5){width:9%}
+.opis-import th:nth-child(6),.opis-import td:nth-child(6){width:10%}
+.opis-import th:nth-child(7),.opis-import td:nth-child(7){width:6%}
+.opis-import th:nth-child(8),.opis-import td:nth-child(8){width:6%;text-align:center}
+.opis-import th:nth-child(9),.opis-import td:nth-child(9){width:13%;text-align:left}

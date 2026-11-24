@@ -18,6 +18,8 @@ type InventoryNumber struct {
 	DocumentNumber string   `json:"document_number" db:"document_number"`
 	Unit           string   `json:"unit" db:"unit"`
 	Quantity       *float64 `json:"quantity" db:"quantity"`
+	AcceptedAt     string   `json:"accepted_at" db:"accepted_at"`
+	WearPercent    *float64 `json:"wear_percent" db:"wear_percent"`
 	CreatedAt      string   `json:"created_at" db:"created_at"`
 }
 

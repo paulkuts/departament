@@ -36,6 +36,8 @@ type InventoryNumberRepo interface {
 	Create(ctx context.Context, item *models.InventoryNumber) error
 	Update(ctx context.Context, item *models.InventoryNumber) error
 	Import(ctx context.Context, items []models.InventoryNumber, replace bool) (int, int, error)
+	ImportBatch(ctx context.Context, batch *models.InventoryImportBatch, items []models.InventoryNumber) (*models.InventoryImportReport, error)
+	RollbackImportBatch(ctx context.Context, id int64) (*models.InventoryImportRollback, error)
 	Delete(ctx context.Context, id int64) error
 }
 

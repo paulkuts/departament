@@ -195,6 +195,7 @@ class ApiClient {
     getInventoryById(id)         { return this.request(`/inventory/${id}`); }
     getInventoryNumbers(search = '', sort = '') { const parts=[]; if(search)parts.push('search=' + encodeURIComponent(search)); if(sort)parts.push('sort=' + encodeURIComponent(sort)); return this.request(`/inventory-numbers${parts.length ? '?' + parts.join('&') : ''}`); }
     createInventoryNumber(data)   { return this.request('/inventory-numbers', { method: 'POST', body: JSON.stringify(data) }); }
+    importInventoryTable(label, documentNumber, items) { return this.request('/inventory-numbers/import-batches', { method: 'POST', body: JSON.stringify({ label, document_number: documentNumber, items }) }); }
     updateInventoryNumber(id, data) { return this.request(`/inventory-numbers/${id}`, { method: 'PUT', body: JSON.stringify(data) }); }
     lookupInventoryNumber(number) { return this.request(`/inventory-numbers/lookup?number=${encodeURIComponent(number)}`); }
     getInventoryHints(search = '') { return this.request(`/inventory-numbers/hints${search ? '?search=' + encodeURIComponent(search) : ''}`); }
